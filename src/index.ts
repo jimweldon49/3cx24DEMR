@@ -1,5 +1,5 @@
 import express from "express";
-import pinoHttp from "pino-http";
+import { pinoHttp } from "pino-http";
 import { getConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { FourdEmrClient } from "./clients/fourd-emr-client.js";
