@@ -10,6 +10,11 @@ const envSchema = z.object({
   FOURD_EMR_BASE_URL: z.string().url(),
   FOURD_EMR_API_KEY: z.string().min(1).optional(),
   FOURD_EMR_BEARER_TOKEN: z.string().min(1).optional(),
+  FOURD_EMR_OAUTH_TOKEN_URL: z.string().url().optional(),
+  FOURD_EMR_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  FOURD_EMR_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  FOURD_EMR_OAUTH_SCOPE: z.string().min(1).optional(),
+  FOURD_EMR_OAUTH_AUDIENCE: z.string().min(1).optional(),
   FOURD_EMR_PATIENT_LOOKUP_PATH: z.string().default("/api/patients/search"),
   FOURD_EMR_PATIENT_LOOKUP_PHONE_PARAM: z.string().default("phone"),
   FOURD_EMR_PATIENT_LOOKUP_RESULT_PATH: z.string().default("data.patients"),
@@ -32,6 +37,13 @@ export type AppConfig = {
   fourdEmrBaseUrl: string;
   fourdEmrApiKey?: string;
   fourdEmrBearerToken?: string;
+  fourdEmrOauth?: {
+    tokenUrl: string;
+    clientId: string;
+    clientSecret: string;
+    scope?: string;
+    audience?: string;
+  };
   fourdMappings: {
     patientLookupPath: string;
     patientLookupPhoneParam: string;
@@ -59,6 +71,18 @@ export function getConfig(): AppConfig {
   }
 
   const parsed = envSchema.parse(process.env);
+  const oauthValues = [
+    parsed.FOURD_EMR_OAUTH_TOKEN_URL,
+    parsed.FOURD_EMR_OAUTH_CLIENT_ID,
+    parsed.FOURD_EMR_OAUTH_CLIENT_SECRET
+  ];
+  const oauthSetCount = oauthValues.filter((value) => Boolean(value)).length;
+  if (oauthSetCount > 0 && oauthSetCount < oauthValues.length) {
+    throw new Error(
+      "FOURD_EMR_OAUTH_TOKEN_URL, FOURD_EMR_OAUTH_CLIENT_ID, and FOURD_EMR_OAUTH_CLIENT_SECRET must be set together"
+    );
+  }
+
   const publicBaseUrl = parsed.PUBLIC_BASE_URL ?? `http://localhost:${parsed.PORT}`;
 
   cachedConfig = {
@@ -70,6 +94,18 @@ export function getConfig(): AppConfig {
     fourdEmrBaseUrl: trimTrailingSlash(parsed.FOURD_EMR_BASE_URL),
     fourdEmrApiKey: parsed.FOURD_EMR_API_KEY,
     fourdEmrBearerToken: parsed.FOURD_EMR_BEARER_TOKEN,
+    fourdEmrOauth:
+      parsed.FOURD_EMR_OAUTH_TOKEN_URL &&
+      parsed.FOURD_EMR_OAUTH_CLIENT_ID &&
+      parsed.FOURD_EMR_OAUTH_CLIENT_SECRET
+        ? {
+            tokenUrl: parsed.FOURD_EMR_OAUTH_TOKEN_URL,
+            clientId: parsed.FOURD_EMR_OAUTH_CLIENT_ID,
+            clientSecret: parsed.FOURD_EMR_OAUTH_CLIENT_SECRET,
+            scope: parsed.FOURD_EMR_OAUTH_SCOPE,
+            audience: parsed.FOURD_EMR_OAUTH_AUDIENCE
+          }
+        : undefined,
     fourdMappings: {
       patientLookupPath: parsed.FOURD_EMR_PATIENT_LOOKUP_PATH,
       patientLookupPhoneParam: parsed.FOURD_EMR_PATIENT_LOOKUP_PHONE_PARAM,

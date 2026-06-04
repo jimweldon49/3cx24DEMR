@@ -4,10 +4,17 @@ import type { AppConfig } from "../config.js";
 import type { CallSession, PatientSummary } from "../types.js";
 import { asString, getByPath } from "../utils.js";
 
+type OAuthTokenCache = {
+  accessToken: string;
+  expiresAt: number;
+};
+
 export class FourdEmrClient {
   private readonly http: AxiosInstance;
   private readonly config: AppConfig;
   private readonly logger: Logger;
+  private oauthTokenCache?: OAuthTokenCache;
+  private oauthTokenPromise?: Promise<string>;
 
   constructor(config: AppConfig, logger: Logger) {
     this.config = config;
@@ -17,8 +24,17 @@ export class FourdEmrClient {
       timeout: 15_000,
       headers: {
         "Content-Type": "application/json",
-        ...this.authHeaders()
+        ...this.staticAuthHeaders()
       }
+    });
+
+    this.http.interceptors.request.use(async (requestConfig) => {
+      const headers = await this.dynamicAuthHeaders();
+      requestConfig.headers = {
+        ...(requestConfig.headers ?? {}),
+        ...headers
+      };
+      return requestConfig;
     });
   }
 
@@ -91,7 +107,7 @@ export class FourdEmrClient {
     await this.http.post(endpoint, payload);
   }
 
-  private authHeaders(): Record<string, string> {
+  private staticAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     if (this.config.fourdEmrApiKey) {
       headers["x-api-key"] = this.config.fourdEmrApiKey;
@@ -100,5 +116,92 @@ export class FourdEmrClient {
       headers.authorization = `Bearer ${this.config.fourdEmrBearerToken}`;
     }
     return headers;
+  }
+
+  private async dynamicAuthHeaders(): Promise<Record<string, string>> {
+    if (this.config.fourdEmrBearerToken) {
+      return {};
+    }
+
+    if (!this.config.fourdEmrOauth) {
+      return {};
+    }
+
+    const accessToken = await this.getOAuthAccessToken();
+    return {
+      authorization: `Bearer ${accessToken}`
+    };
+  }
+
+  private async getOAuthAccessToken(): Promise<string> {
+    const now = Date.now();
+    if (this.oauthTokenCache && this.oauthTokenCache.expiresAt > now + 5_000) {
+      return this.oauthTokenCache.accessToken;
+    }
+
+    if (this.oauthTokenPromise) {
+      return this.oauthTokenPromise;
+    }
+
+    this.oauthTokenPromise = this.fetchOAuthAccessToken().finally(() => {
+      this.oauthTokenPromise = undefined;
+    });
+
+    return this.oauthTokenPromise;
+  }
+
+  private async fetchOAuthAccessToken(): Promise<string> {
+    const oauth = this.config.fourdEmrOauth;
+    if (!oauth) {
+      throw new Error("4D EMR OAuth is not configured");
+    }
+
+    const payload = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: oauth.clientId,
+      client_secret: oauth.clientSecret
+    });
+    if (oauth.scope) {
+      payload.set("scope", oauth.scope);
+    }
+    if (oauth.audience) {
+      payload.set("audience", oauth.audience);
+    }
+
+    const response = await axios.post(oauth.tokenUrl, payload.toString(), {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      timeout: 15_000
+    });
+
+    const accessToken = asString(getByPath(response.data, "access_token"));
+    if (!accessToken) {
+      throw new Error("OAuth token response did not include access_token");
+    }
+
+    const rawExpiresIn = getByPath(response.data, "expires_in");
+    const expiresInSeconds =
+      typeof rawExpiresIn === "number"
+        ? rawExpiresIn
+        : typeof rawExpiresIn === "string"
+          ? Number(rawExpiresIn)
+          : 3600;
+    const safeExpiresIn = Number.isFinite(expiresInSeconds) ? Math.max(60, expiresInSeconds) : 3600;
+    const expiresAt = Date.now() + (safeExpiresIn - 30) * 1000;
+
+    this.oauthTokenCache = {
+      accessToken,
+      expiresAt
+    };
+
+    this.logger.debug(
+      {
+        expiresInSeconds: safeExpiresIn
+      },
+      "Fetched 4D EMR OAuth access token"
+    );
+
+    return accessToken;
   }
 }

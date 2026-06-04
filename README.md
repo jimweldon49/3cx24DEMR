@@ -36,8 +36,15 @@ Populate `.env` with your:
 
 - 3CX tenant URL
 - 4D EMR base URL
-- 4D EMR credentials (API key and/or bearer token)
+- 4D EMR credentials (API key, static bearer token, or OAuth client credentials)
 - correct lookup/create endpoint mappings for your 4D API contract
+
+If 4D EMR uses OAuth client credentials, set:
+
+- `FOURD_EMR_OAUTH_TOKEN_URL`
+- `FOURD_EMR_OAUTH_CLIENT_ID`
+- `FOURD_EMR_OAUTH_CLIENT_SECRET`
+- optional: `FOURD_EMR_OAUTH_SCOPE`, `FOURD_EMR_OAUTH_AUDIENCE`
 
 ### 3) Run locally
 
