@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from "axios";
+import axios, { AxiosHeaders, type AxiosInstance } from "axios";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config.js";
 import type { CallSession, PatientSummary } from "../types.js";
@@ -30,10 +30,11 @@ export class FourdEmrClient {
 
     this.http.interceptors.request.use(async (requestConfig) => {
       const headers = await this.dynamicAuthHeaders();
-      requestConfig.headers = {
-        ...(requestConfig.headers ?? {}),
-        ...headers
-      };
+      const resolvedHeaders = AxiosHeaders.from(requestConfig.headers ?? {});
+      for (const [key, value] of Object.entries(headers)) {
+        resolvedHeaders.set(key, value);
+      }
+      requestConfig.headers = resolvedHeaders;
       return requestConfig;
     });
   }
