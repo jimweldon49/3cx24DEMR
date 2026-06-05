@@ -1,4 +1,4 @@
-import type { CallSession, PatientSummary } from "../types.js";
+import type { CallSession, PatientSummary, ScreenPopAction } from "../types.js";
 
 export class CallSessionStore {
   private readonly sessions = new Map<string, CallSession>();
@@ -17,6 +17,9 @@ export class CallSessionStore {
     agentExtension?: string;
     startedAt: string;
     patient?: PatientSummary;
+    patientMatches?: PatientSummary[];
+    screenPopAction?: ScreenPopAction;
+    screenPopUrl?: string;
     metadata?: Record<string, unknown>;
   }): CallSession {
     this.pruneExpired();
@@ -33,6 +36,9 @@ export class CallSessionStore {
       agentExtension: input.agentExtension,
       startedAt: input.startedAt,
       patient: input.patient ?? existing?.patient,
+      patientMatches: input.patientMatches ?? existing?.patientMatches,
+      screenPopAction: input.screenPopAction ?? existing?.screenPopAction,
+      screenPopUrl: input.screenPopUrl ?? existing?.screenPopUrl,
       metadata: input.metadata ?? existing?.metadata,
       transcript: existing?.transcript,
       expiresAt: now + this.ttlMs

@@ -39,7 +39,7 @@ export class FourdEmrClient {
     });
   }
 
-  async findPatientByPhone(phoneNumber: string): Promise<PatientSummary | undefined> {
+  async findPatientsByPhone(phoneNumber: string): Promise<PatientSummary[]> {
     const endpoint = this.config.fourdMappings.patientLookupPath;
     const queryParam = this.config.fourdMappings.patientLookupPhoneParam;
     const response = await this.http.get(endpoint, {
@@ -51,32 +51,13 @@ export class FourdEmrClient {
     const results = getByPath(response.data, this.config.fourdMappings.patientLookupResultPath);
     const list = Array.isArray(results) ? results : results != null ? [results] : [];
     if (list.length === 0) {
-      return undefined;
+      return [];
     }
 
-    const first = list[0];
-    const id = asString(getByPath(first, this.config.fourdMappings.patientIdPath));
-    const fullName = asString(getByPath(first, this.config.fourdMappings.patientNamePath));
-    if (!id || !fullName) {
-      this.logger.warn(
-        {
-          patientIdPath: this.config.fourdMappings.patientIdPath,
-          patientNamePath: this.config.fourdMappings.patientNamePath,
-          received: first
-        },
-        "Patient lookup returned a record missing required id/name fields"
-      );
-      return undefined;
-    }
-
-    return {
-      id,
-      fullName,
-      mrn: asString(getByPath(first, this.config.fourdMappings.patientMrnPath)),
-      dateOfBirth: asString(getByPath(first, this.config.fourdMappings.patientDobPath)),
-      chartNumber: asString(getByPath(first, this.config.fourdMappings.patientChartPath)),
-      raw: first
-    };
+    return list.flatMap((entry) => {
+      const mapped = this.mapPatientSummary(entry);
+      return mapped ? [mapped] : [];
+    });
   }
 
   async appendTranscriptToPatientChart(session: CallSession, transcript: string): Promise<void> {
@@ -90,7 +71,7 @@ export class FourdEmrClient {
     );
 
     const payload = {
-      noteType: "phone_call_transcript",
+      noteType: this.config.fourdMappings.transcriptNoteType,
       title: `3CX Call ${session.callId}`,
       text: transcript,
       metadata: {
@@ -204,5 +185,30 @@ export class FourdEmrClient {
     );
 
     return accessToken;
+  }
+
+  private mapPatientSummary(entry: unknown): PatientSummary | undefined {
+    const id = asString(getByPath(entry, this.config.fourdMappings.patientIdPath));
+    const fullName = asString(getByPath(entry, this.config.fourdMappings.patientNamePath));
+    if (!id || !fullName) {
+      this.logger.warn(
+        {
+          patientIdPath: this.config.fourdMappings.patientIdPath,
+          patientNamePath: this.config.fourdMappings.patientNamePath,
+          received: entry
+        },
+        "Skipping patient result with missing required id/name fields"
+      );
+      return undefined;
+    }
+
+    return {
+      id,
+      fullName,
+      mrn: asString(getByPath(entry, this.config.fourdMappings.patientMrnPath)),
+      dateOfBirth: asString(getByPath(entry, this.config.fourdMappings.patientDobPath)),
+      chartNumber: asString(getByPath(entry, this.config.fourdMappings.patientChartPath)),
+      raw: entry
+    };
   }
 }

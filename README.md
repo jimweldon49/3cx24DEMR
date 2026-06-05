@@ -14,6 +14,11 @@ This repository now contains a production-ready starter service that connects **
 - Validates webhook signatures (HMAC SHA-256) when a shared secret is configured.
 - Uses an in-memory session store per call (`callId`) to correlate start/transcript/end events.
 - Supports idempotency for repeated webhook events via `eventId`.
+- Supports configurable screen-pop behavior:
+  - single match -> open patient chart
+  - multiple matches -> pick-list/search/open-first
+  - no match -> new-patient/search/none
+- Redacts SSNs from transcript text before writeback when enabled.
 - Uses configurable response-path mappings so you can adapt to your exact 4D EMR API shape without changing code.
 
 ---
@@ -45,6 +50,11 @@ If 4D EMR uses OAuth client credentials, set:
 - `FOURD_EMR_OAUTH_CLIENT_ID`
 - `FOURD_EMR_OAUTH_CLIENT_SECRET`
 - optional: `FOURD_EMR_OAUTH_SCOPE`, `FOURD_EMR_OAUTH_AUDIENCE`
+- optional behavior settings:
+  - `FOURD_EMR_TRANSCRIPT_NOTE_TYPE`
+  - `SCREEN_POP_MULTI_MATCH_ACTION`
+  - `SCREEN_POP_NO_MATCH_ACTION`
+  - `REDACT_SSN_IN_TRANSCRIPTS`
 
 ### 3) Run locally
 
@@ -71,7 +81,11 @@ Base route: `/webhooks`
 
 ### `POST /webhooks/3cx/call-start`
 
-Looks up patient by caller number and returns screen-pop details.
+Looks up patient by caller number and returns screen-pop details:
+
+- `screenPopAction: open_patient | pick_list | new_patient | search | none`
+- `screenPopUrl` resolved from template(s)
+- `matchCandidates` when multiple patients are found
 
 Example payload:
 
@@ -116,7 +130,7 @@ Finalizes call handling and pushes transcript into 4D EMR patient chart when pat
 
 ### `GET /webhooks/screen-pop/:callId`
 
-Returns patient context and a computed 4D UI URL for screen-pop.
+Returns call context, chosen screen-pop action, patient context (if selected), candidate list (if multiple), and screen-pop URL.
 
 ---
 

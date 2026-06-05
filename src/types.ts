@@ -7,6 +7,8 @@ export type PatientSummary = {
   raw: unknown;
 };
 
+export type ScreenPopAction = "open_patient" | "pick_list" | "new_patient" | "search" | "none";
+
 export type CallSession = {
   callId: string;
   eventId?: string;
@@ -16,6 +18,9 @@ export type CallSession = {
   agentExtension?: string;
   startedAt: string;
   patient?: PatientSummary;
+  patientMatches?: PatientSummary[];
+  screenPopAction?: ScreenPopAction;
+  screenPopUrl?: string;
   transcript?: string;
   metadata?: Record<string, unknown>;
   expiresAt: number;

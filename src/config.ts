@@ -24,7 +24,17 @@ const envSchema = z.object({
   FOURD_EMR_PATIENT_DOB_PATH: z.string().default("dateOfBirth"),
   FOURD_EMR_PATIENT_CHART_PATH: z.string().default("chartNumber"),
   FOURD_EMR_SCREEN_POP_PATH_TEMPLATE: z.string().default("/patients/{patientId}"),
+  FOURD_EMR_PATIENT_SEARCH_PATH_TEMPLATE: z.string().default("/patients/search?phone={phone}"),
+  FOURD_EMR_NEW_PATIENT_PATH_TEMPLATE: z.string().default("/patients/new?phone={phone}"),
   FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE: z.string().default("/api/patients/{patientId}/notes"),
+  FOURD_EMR_TRANSCRIPT_NOTE_TYPE: z.string().default("phone_call_transcript"),
+  SCREEN_POP_MULTI_MATCH_ACTION: z
+    .enum(["pick_list", "open_first", "search"])
+    .default("pick_list"),
+  SCREEN_POP_NO_MATCH_ACTION: z
+    .enum(["new_patient", "search", "none"])
+    .default("new_patient"),
+  REDACT_SSN_IN_TRANSCRIPTS: z.coerce.boolean().default(true),
   CALL_SESSION_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(240)
 });
 
@@ -54,7 +64,17 @@ export type AppConfig = {
     patientDobPath: string;
     patientChartPath: string;
     screenPopPathTemplate: string;
+    patientSearchPathTemplate: string;
+    newPatientPathTemplate: string;
     noteCreatePathTemplate: string;
+    transcriptNoteType: string;
+  };
+  screenPopBehavior: {
+    multiMatchAction: "pick_list" | "open_first" | "search";
+    noMatchAction: "new_patient" | "search" | "none";
+  };
+  transcriptRedaction: {
+    redactSsn: boolean;
   };
   callSessionTtlMs: number;
 };
@@ -116,7 +136,17 @@ export function getConfig(): AppConfig {
       patientDobPath: parsed.FOURD_EMR_PATIENT_DOB_PATH,
       patientChartPath: parsed.FOURD_EMR_PATIENT_CHART_PATH,
       screenPopPathTemplate: parsed.FOURD_EMR_SCREEN_POP_PATH_TEMPLATE,
-      noteCreatePathTemplate: parsed.FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE
+      patientSearchPathTemplate: parsed.FOURD_EMR_PATIENT_SEARCH_PATH_TEMPLATE,
+      newPatientPathTemplate: parsed.FOURD_EMR_NEW_PATIENT_PATH_TEMPLATE,
+      noteCreatePathTemplate: parsed.FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE,
+      transcriptNoteType: parsed.FOURD_EMR_TRANSCRIPT_NOTE_TYPE
+    },
+    screenPopBehavior: {
+      multiMatchAction: parsed.SCREEN_POP_MULTI_MATCH_ACTION,
+      noMatchAction: parsed.SCREEN_POP_NO_MATCH_ACTION
+    },
+    transcriptRedaction: {
+      redactSsn: parsed.REDACT_SSN_IN_TRANSCRIPTS
     },
     callSessionTtlMs: parsed.CALL_SESSION_TTL_MINUTES * 60 * 1000
   };
