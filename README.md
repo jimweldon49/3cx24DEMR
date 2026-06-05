@@ -172,3 +172,11 @@ If payload shape for note creation differs, adjust `appendTranscriptToPatientCha
   For HA/multi-instance workloads, replace `CallSessionStore` and `EventIdStore` with Redis.
 - Put this service behind TLS and IP allow-list inbound webhook traffic where possible.
 - Keep API credentials in a secret manager; avoid plaintext secrets in files.
+
+---
+
+## Azure deployment
+
+If your organization uses Azure, see:
+
+- `docs/deploy-azure-app-service.md`
