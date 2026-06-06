@@ -42,6 +42,7 @@ const envSchema = z.object({
   FOURD_EMR_TELEPHONE_NOTE_TYPE_ID: z.coerce.number().int().positive().default(2),
   FOURD_EMR_INCLUDE_PATIENT_ID_IN_NOTE: z.coerce.boolean().default(false),
   FOURD_EMR_DEFAULT_APPOINTMENT_ID: z.coerce.number().int().positive().optional(),
+  FOURD_EMR_REQUIRE_APPOINTMENT_ID: z.coerce.boolean().default(false),
   SCREEN_POP_MULTI_MATCH_ACTION: z
     .enum(["pick_list", "open_first", "search"])
     .default("pick_list"),
@@ -94,6 +95,7 @@ export type AppConfig = {
     telephoneNoteTypeId: number;
     includePatientIdInNote: boolean;
     defaultAppointmentId?: number;
+    requireAppointmentId: boolean;
   };
   screenPopBehavior: {
     multiMatchAction: "pick_list" | "open_first" | "search";
@@ -182,7 +184,8 @@ export function getConfig(): AppConfig {
       noteCreatePathTemplate: parsed.FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE,
       telephoneNoteTypeId: parsed.FOURD_EMR_TELEPHONE_NOTE_TYPE_ID,
       includePatientIdInNote: parsed.FOURD_EMR_INCLUDE_PATIENT_ID_IN_NOTE,
-      defaultAppointmentId: parsed.FOURD_EMR_DEFAULT_APPOINTMENT_ID
+      defaultAppointmentId: parsed.FOURD_EMR_DEFAULT_APPOINTMENT_ID,
+      requireAppointmentId: parsed.FOURD_EMR_REQUIRE_APPOINTMENT_ID
     },
     screenPopBehavior: {
       multiMatchAction: parsed.SCREEN_POP_MULTI_MATCH_ACTION,

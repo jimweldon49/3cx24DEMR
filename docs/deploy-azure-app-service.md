@@ -117,7 +117,8 @@ Then set 4D mapping fields:
 - `FOURD_EMR_NEW_PATIENT_PATH_TEMPLATE`
 - `FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE`
 
-> 4D `/api/public/chartNotes` requires `AppointmentId`. Ensure 3CX payload includes `appointmentId` on call-start or call-end, or configure a temporary fallback with `FOURD_EMR_DEFAULT_APPOINTMENT_ID`.
+> This integration treats `appointmentId` as optional by default (`FOURD_EMR_REQUIRE_APPOINTMENT_ID=false`) and includes it when available.
+> If your 4D tenant enforces appointment linkage for chart notes, set `FOURD_EMR_REQUIRE_APPOINTMENT_ID=true` and provide `appointmentId` in call-start/call-end payloads (or set `FOURD_EMR_DEFAULT_APPOINTMENT_ID` as a fallback).
 
 ---
 

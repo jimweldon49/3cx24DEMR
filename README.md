@@ -125,7 +125,11 @@ Stores transcript text for an active call session (or accepts early if call-star
 
 Finalizes call handling and pushes transcript into 4D EMR chart notes when patient context exists.
 
-`AppointmentId` is required by the 4D chart note API and can be sent in:
+`appointmentId` can be sent when available and will be forwarded to 4D.
+By default, the integration does **not** require it (`FOURD_EMR_REQUIRE_APPOINTMENT_ID=false`).
+If your 4D tenant requires it, enable strict mode and provide it from your call events.
+
+Possible sources:
 
 - `call-start` payload (`appointmentId`)
 - or `call-end` payload (`appointmentId`)

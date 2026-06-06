@@ -352,17 +352,13 @@ export function createWebhookRouter(deps: RouterDependencies): Router {
       let pushSkippedReason: string | undefined;
       if (session.patient && transcript) {
         const appointmentId = payload.appointmentId ?? session.appointmentId;
-        if (!appointmentId) {
-          pushSkippedReason = "appointment_id_missing";
-        } else {
-          const sanitizedTranscript = sanitizeTranscriptText(transcript, deps.config);
-          redactionsApplied = sanitizedTranscript !== transcript;
-          await deps.fourdEmrClient.appendTranscriptToPatientChart(
-            { ...session, appointmentId },
-            sanitizedTranscript
-          );
-          pushedToEmr = true;
-        }
+        const sanitizedTranscript = sanitizeTranscriptText(transcript, deps.config);
+        redactionsApplied = sanitizedTranscript !== transcript;
+        await deps.fourdEmrClient.appendTranscriptToPatientChart(
+          { ...session, appointmentId },
+          sanitizedTranscript
+        );
+        pushedToEmr = true;
       } else if (!session.patient) {
         pushSkippedReason = "patient_not_found";
       } else if (!transcript) {

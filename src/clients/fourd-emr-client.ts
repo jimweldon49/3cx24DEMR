@@ -74,8 +74,8 @@ export class FourdEmrClient {
   async appendTranscriptToPatientChart(session: CallSession, transcript: string): Promise<void> {
     const endpoint = this.config.fourdMappings.noteCreatePathTemplate;
     const appointmentId = session.appointmentId ?? this.config.fourdMappings.defaultAppointmentId;
-    if (!appointmentId) {
-      throw new Error("Cannot append transcript because appointmentId is not available");
+    if (this.config.fourdMappings.requireAppointmentId && !appointmentId) {
+      throw new Error("Cannot append transcript because appointmentId is required but missing");
     }
 
     const callSummaryLines = [
@@ -89,10 +89,14 @@ export class FourdEmrClient {
     ].filter((line): line is string => Boolean(line));
     const composedNoteText = `${callSummaryLines.join("\n")}\n\nTranscript:\n${transcript}`;
     const payload = {
-      AppointmentId: appointmentId,
       SignedOn: new Date().toISOString(),
       ChartNoteTypeID: this.config.fourdMappings.telephoneNoteTypeId,
       NoteText: composedNoteText,
+      ...(appointmentId
+        ? {
+            AppointmentId: appointmentId
+          }
+        : {}),
       ...(this.config.fourdMappings.includePatientIdInNote && session.patient?.id
         ? {
             PatientId: asPositiveInt(session.patient.id) ?? session.patient.id
