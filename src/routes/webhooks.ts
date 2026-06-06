@@ -7,7 +7,7 @@ import type { PatientSummary, ScreenPopAction } from "../types.js";
 import { EventIdStore } from "../services/event-id-store.js";
 import { CallSessionStore } from "../services/call-session-store.js";
 import { isSignatureValid } from "../security/signature.js";
-import { normalizePhoneNumber } from "../utils.js";
+import { asPositiveInt, normalizePhoneNumber } from "../utils.js";
 import { sanitizeTranscriptText } from "../transcript/sanitizer.js";
 
 type RouterDependencies = {
@@ -24,6 +24,7 @@ const callStartSchema = z.object({
   eventId: z.string().optional(),
   eventType: z.string().optional(),
   callId: z.string().min(1),
+  appointmentId: z.coerce.number().int().positive().optional(),
   fromNumber: z.string().min(3),
   toNumber: z.string().optional(),
   direction: z.enum(["inbound", "outbound"]).optional(),
@@ -35,12 +36,14 @@ const callStartSchema = z.object({
 const transcriptSchema = z.object({
   eventId: z.string().optional(),
   callId: z.string().min(1),
+  appointmentId: z.coerce.number().int().positive().optional(),
   transcript: z.string().min(1)
 });
 
 const callEndSchema = z.object({
   eventId: z.string().optional(),
   callId: z.string().min(1),
+  appointmentId: z.coerce.number().int().positive().optional(),
   endedAt: z.string().datetime().optional(),
   transcript: z.string().optional()
 });
@@ -62,19 +65,19 @@ function validateSignature(req: RequestWithRawBody, config: AppConfig): boolean 
   });
 }
 
-function screenPopUrl(config: AppConfig, patientId: string): string {
+function screenPopUrl(config: AppConfig, patientId: string): string | undefined {
   return buildUrlFromTemplate(config, config.fourdMappings.screenPopPathTemplate, {
     patientId
   });
 }
 
-function searchUrl(config: AppConfig, phone: string): string {
+function searchUrl(config: AppConfig, phone: string): string | undefined {
   return buildUrlFromTemplate(config, config.fourdMappings.patientSearchPathTemplate, {
     phone
   });
 }
 
-function newPatientUrl(config: AppConfig, phone: string): string {
+function newPatientUrl(config: AppConfig, phone: string): string | undefined {
   return buildUrlFromTemplate(config, config.fourdMappings.newPatientPathTemplate, {
     phone
   });
@@ -82,9 +85,13 @@ function newPatientUrl(config: AppConfig, phone: string): string {
 
 function buildUrlFromTemplate(
   config: AppConfig,
-  template: string,
+  template: string | undefined,
   values: Record<string, string | undefined>
-): string {
+): string | undefined {
+  if (!template) {
+    return undefined;
+  }
+
   let url = template;
   for (const [key, rawValue] of Object.entries(values)) {
     url = url.replaceAll(`{${key}}`, encodeURIComponent(rawValue ?? ""));
@@ -94,7 +101,11 @@ function buildUrlFromTemplate(
     return url;
   }
 
-  return `${config.fourdEmrBaseUrl}${url}`;
+  return `${config.fourdEmrAppBaseUrl}${url}`;
+}
+
+function appHomeUrl(config: AppConfig): string {
+  return `${config.fourdEmrAppBaseUrl}/#`;
 }
 
 function summarizePatient(patient: PatientSummary): Record<string, string | undefined> {
@@ -111,6 +122,46 @@ function rejectInvalidSignature(res: Response): void {
   res.status(401).json({
     error: "Invalid webhook signature"
   });
+}
+
+function resolveScreenPopAction(input: {
+  config: AppConfig;
+  patientCount: number;
+  selectedPatient?: PatientSummary;
+  fromNumber: string;
+}): { action: ScreenPopAction; url?: string } {
+  const { config, patientCount, selectedPatient, fromNumber } = input;
+
+  if (patientCount === 1 && selectedPatient) {
+    const url = screenPopUrl(config, selectedPatient.id);
+    return url ? { action: "open_patient", url } : { action: "none" };
+  }
+
+  if (patientCount > 1) {
+    if (config.screenPopBehavior.multiMatchAction === "open_first" && selectedPatient) {
+      const url = screenPopUrl(config, selectedPatient.id);
+      return url ? { action: "open_patient", url } : { action: "none" };
+    }
+
+    if (config.screenPopBehavior.multiMatchAction === "search") {
+      const url = searchUrl(config, fromNumber);
+      return { action: "search", url: url ?? appHomeUrl(config) };
+    }
+
+    const url = searchUrl(config, fromNumber);
+    return { action: "pick_list", url };
+  }
+
+  if (config.screenPopBehavior.noMatchAction === "new_patient") {
+    const url = newPatientUrl(config, fromNumber);
+    return { action: "new_patient", url: url ?? appHomeUrl(config) };
+  }
+  if (config.screenPopBehavior.noMatchAction === "search") {
+    const url = searchUrl(config, fromNumber);
+    return { action: "search", url: url ?? appHomeUrl(config) };
+  }
+
+  return { action: "none" };
 }
 
 export function createWebhookRouter(deps: RouterDependencies): Router {
@@ -137,44 +188,33 @@ export function createWebhookRouter(deps: RouterDependencies): Router {
     const fromNumber = normalizePhoneNumber(payload.fromNumber);
     const direction = payload.direction ?? "unknown";
     const startedAt = payload.startedAt ?? new Date().toISOString();
+    const appointmentId =
+      payload.appointmentId ?? asPositiveInt((payload.metadata as Record<string, unknown> | undefined)?.appointmentId);
 
     try {
       const patients = await deps.fourdEmrClient.findPatientsByPhone(fromNumber);
       let patient: PatientSummary | undefined;
-      let action: ScreenPopAction = "none";
-      let nextScreenPopUrl: string | undefined;
       let patientMatches: PatientSummary[] | undefined;
 
       if (patients.length === 1) {
         patient = patients[0];
-        action = "open_patient";
-        nextScreenPopUrl = screenPopUrl(deps.config, patient.id);
       } else if (patients.length > 1) {
         patientMatches = patients.slice(0, 10);
         if (deps.config.screenPopBehavior.multiMatchAction === "open_first") {
           patient = patients[0];
-          action = "open_patient";
-          nextScreenPopUrl = screenPopUrl(deps.config, patient.id);
-        } else if (deps.config.screenPopBehavior.multiMatchAction === "search") {
-          action = "search";
-          nextScreenPopUrl = searchUrl(deps.config, fromNumber);
-        } else {
-          action = "pick_list";
-          nextScreenPopUrl = searchUrl(deps.config, fromNumber);
-        }
-      } else {
-        if (deps.config.screenPopBehavior.noMatchAction === "new_patient") {
-          action = "new_patient";
-          nextScreenPopUrl = newPatientUrl(deps.config, fromNumber);
-        } else if (deps.config.screenPopBehavior.noMatchAction === "search") {
-          action = "search";
-          nextScreenPopUrl = searchUrl(deps.config, fromNumber);
         }
       }
+      const resolvedAction = resolveScreenPopAction({
+        config: deps.config,
+        patientCount: patients.length,
+        selectedPatient: patient,
+        fromNumber
+      });
 
       const session = deps.callSessions.upsertStartEvent({
         callId: payload.callId,
         eventId: payload.eventId,
+        appointmentId,
         fromNumber,
         toNumber: payload.toNumber,
         direction,
@@ -182,13 +222,13 @@ export function createWebhookRouter(deps: RouterDependencies): Router {
         startedAt,
         patient,
         patientMatches,
-        screenPopAction: action,
-        screenPopUrl: nextScreenPopUrl,
+        screenPopAction: resolvedAction.action,
+        screenPopUrl: resolvedAction.url,
         metadata: {
           ...(payload.metadata ?? {}),
           integration: {
             patientMatchCount: patients.length,
-            screenPopAction: action
+            screenPopAction: resolvedAction.action
           }
         }
       });
@@ -289,15 +329,44 @@ export function createWebhookRouter(deps: RouterDependencies): Router {
     if (payload.transcript) {
       deps.callSessions.upsertTranscript(payload.callId, payload.transcript);
     }
+      if (payload.appointmentId) {
+        deps.callSessions.upsertStartEvent({
+          callId: payload.callId,
+          appointmentId: payload.appointmentId,
+          fromNumber: session.fromNumber,
+          toNumber: session.toNumber,
+          direction: session.direction,
+          agentExtension: session.agentExtension,
+          startedAt: session.startedAt,
+          patient: session.patient,
+          patientMatches: session.patientMatches,
+          screenPopAction: session.screenPopAction,
+          screenPopUrl: session.screenPopUrl,
+          metadata: session.metadata
+        });
+      }
 
     try {
       let pushedToEmr = false;
       let redactionsApplied = false;
+      let pushSkippedReason: string | undefined;
       if (session.patient && transcript) {
-        const sanitizedTranscript = sanitizeTranscriptText(transcript, deps.config);
-        redactionsApplied = sanitizedTranscript !== transcript;
-        await deps.fourdEmrClient.appendTranscriptToPatientChart(session, sanitizedTranscript);
-        pushedToEmr = true;
+        const appointmentId = payload.appointmentId ?? session.appointmentId;
+        if (!appointmentId) {
+          pushSkippedReason = "appointment_id_missing";
+        } else {
+          const sanitizedTranscript = sanitizeTranscriptText(transcript, deps.config);
+          redactionsApplied = sanitizedTranscript !== transcript;
+          await deps.fourdEmrClient.appendTranscriptToPatientChart(
+            { ...session, appointmentId },
+            sanitizedTranscript
+          );
+          pushedToEmr = true;
+        }
+      } else if (!session.patient) {
+        pushSkippedReason = "patient_not_found";
+      } else if (!transcript) {
+        pushSkippedReason = "transcript_missing";
       }
 
       deps.callSessions.delete(payload.callId);
@@ -309,8 +378,10 @@ export function createWebhookRouter(deps: RouterDependencies): Router {
         status: "ok",
         callId: payload.callId,
         patientId: session.patient?.id ?? null,
+        appointmentId: payload.appointmentId ?? session.appointmentId ?? null,
         transcriptPresent: Boolean(transcript),
         redactionsApplied,
+        pushSkippedReason: pushSkippedReason ?? null,
         pushedToEmr
       });
     } catch (error) {

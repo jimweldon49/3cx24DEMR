@@ -12,6 +12,7 @@ export type ScreenPopAction = "open_patient" | "pick_list" | "new_patient" | "se
 export type CallSession = {
   callId: string;
   eventId?: string;
+  appointmentId?: number;
   fromNumber: string;
   toNumber?: string;
   direction: "inbound" | "outbound" | "unknown";

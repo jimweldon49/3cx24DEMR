@@ -11,6 +11,7 @@ export class CallSessionStore {
   upsertStartEvent(input: {
     callId: string;
     eventId?: string;
+    appointmentId?: number;
     fromNumber: string;
     toNumber?: string;
     direction: "inbound" | "outbound" | "unknown";
@@ -30,6 +31,7 @@ export class CallSessionStore {
       ...(existing ?? {}),
       callId: input.callId,
       eventId: input.eventId ?? existing?.eventId,
+      appointmentId: input.appointmentId ?? existing?.appointmentId,
       fromNumber: input.fromNumber,
       toNumber: input.toNumber,
       direction: input.direction,

@@ -2,7 +2,7 @@ import axios, { AxiosHeaders, type AxiosInstance } from "axios";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config.js";
 import type { CallSession, PatientSummary } from "../types.js";
-import { asString, getByPath } from "../utils.js";
+import { asPositiveInt, asString, getByPath } from "../utils.js";
 
 type OAuthTokenCache = {
   accessToken: string;
@@ -42,48 +42,62 @@ export class FourdEmrClient {
   async findPatientsByPhone(phoneNumber: string): Promise<PatientSummary[]> {
     const endpoint = this.config.fourdMappings.patientLookupPath;
     const queryParam = this.config.fourdMappings.patientLookupPhoneParam;
-    const response = await this.http.get(endpoint, {
-      params: {
-        [queryParam]: phoneNumber
-      }
-    });
+    const attemptedNumbers = this.lookupPhoneCandidates(phoneNumber);
+    for (const candidate of attemptedNumbers) {
+      const response = await this.http.get(endpoint, {
+        params: {
+          [queryParam]: candidate,
+          "page.count": this.config.fourdMappings.patientLookupPageCount,
+          "page.skip": this.config.fourdMappings.patientLookupPageSkip,
+          "page.NeedTotalCount": this.config.fourdMappings.patientLookupNeedTotalCount
+        }
+      });
 
-    const results = getByPath(response.data, this.config.fourdMappings.patientLookupResultPath);
-    const list = Array.isArray(results) ? results : results != null ? [results] : [];
-    if (list.length === 0) {
-      return [];
+      const results = getByPath(response.data, this.config.fourdMappings.patientLookupResultPath);
+      const list = Array.isArray(results) ? results : results != null ? [results] : [];
+      if (list.length === 0) {
+        continue;
+      }
+
+      const mapped = list.flatMap((entry) => {
+        const summary = this.mapPatientSummary(entry);
+        return summary ? [summary] : [];
+      });
+      if (mapped.length > 0) {
+        return mapped;
+      }
     }
 
-    return list.flatMap((entry) => {
-      const mapped = this.mapPatientSummary(entry);
-      return mapped ? [mapped] : [];
-    });
+    return [];
   }
 
   async appendTranscriptToPatientChart(session: CallSession, transcript: string): Promise<void> {
-    if (!session.patient?.id) {
-      throw new Error("Cannot append transcript because call session has no patient");
+    const endpoint = this.config.fourdMappings.noteCreatePathTemplate;
+    const appointmentId = session.appointmentId ?? this.config.fourdMappings.defaultAppointmentId;
+    if (!appointmentId) {
+      throw new Error("Cannot append transcript because appointmentId is not available");
     }
 
-    const endpoint = this.config.fourdMappings.noteCreatePathTemplate.replace(
-      "{patientId}",
-      encodeURIComponent(session.patient.id)
-    );
-
+    const callSummaryLines = [
+      "Source: 3CX v20",
+      `Call ID: ${session.callId}`,
+      `Direction: ${session.direction}`,
+      `From: ${session.fromNumber}`,
+      session.toNumber ? `To: ${session.toNumber}` : undefined,
+      session.agentExtension ? `Agent Extension: ${session.agentExtension}` : undefined,
+      `Call Started At: ${session.startedAt}`
+    ].filter((line): line is string => Boolean(line));
+    const composedNoteText = `${callSummaryLines.join("\n")}\n\nTranscript:\n${transcript}`;
     const payload = {
-      noteType: this.config.fourdMappings.transcriptNoteType,
-      title: `3CX Call ${session.callId}`,
-      text: transcript,
-      metadata: {
-        source: "3cx-v20",
-        callId: session.callId,
-        fromNumber: session.fromNumber,
-        toNumber: session.toNumber,
-        direction: session.direction,
-        agentExtension: session.agentExtension,
-        startedAt: session.startedAt,
-        syncedAt: new Date().toISOString()
-      }
+      AppointmentId: appointmentId,
+      SignedOn: new Date().toISOString(),
+      ChartNoteTypeID: this.config.fourdMappings.telephoneNoteTypeId,
+      NoteText: composedNoteText,
+      ...(this.config.fourdMappings.includePatientIdInNote && session.patient?.id
+        ? {
+            PatientId: asPositiveInt(session.patient.id) ?? session.patient.id
+          }
+        : {})
     };
 
     await this.http.post(endpoint, payload);
@@ -93,6 +107,12 @@ export class FourdEmrClient {
     const headers: Record<string, string> = {};
     if (this.config.fourdEmrApiKey) {
       headers["x-api-key"] = this.config.fourdEmrApiKey;
+    }
+    if (this.config.fourdEmrClientId) {
+      headers[this.config.fourdEmrClientIdHeader] = this.config.fourdEmrClientId;
+    }
+    if (this.config.fourdEmrClientSecret) {
+      headers[this.config.fourdEmrClientSecretHeader] = this.config.fourdEmrClientSecret;
     }
     if (this.config.fourdEmrBearerToken) {
       headers.authorization = `Bearer ${this.config.fourdEmrBearerToken}`;
@@ -189,7 +209,14 @@ export class FourdEmrClient {
 
   private mapPatientSummary(entry: unknown): PatientSummary | undefined {
     const id = asString(getByPath(entry, this.config.fourdMappings.patientIdPath));
-    const fullName = asString(getByPath(entry, this.config.fourdMappings.patientNamePath));
+    const fullNameFromPath =
+      this.config.fourdMappings.patientNamePath.length > 0
+        ? asString(getByPath(entry, this.config.fourdMappings.patientNamePath))
+        : undefined;
+    const firstName = asString(getByPath(entry, this.config.fourdMappings.patientFirstNamePath));
+    const lastName = asString(getByPath(entry, this.config.fourdMappings.patientLastNamePath));
+    const joinedName = [firstName, lastName].filter((part): part is string => Boolean(part)).join(" ");
+    const fullName = fullNameFromPath ?? (joinedName.length > 0 ? joinedName : undefined);
     if (!id || !fullName) {
       this.logger.warn(
         {
@@ -210,5 +237,23 @@ export class FourdEmrClient {
       chartNumber: asString(getByPath(entry, this.config.fourdMappings.patientChartPath)),
       raw: entry
     };
+  }
+
+  private lookupPhoneCandidates(phoneNumber: string): string[] {
+    const values = new Set<string>();
+    values.add(phoneNumber);
+
+    const digitsOnly = phoneNumber.replace(/[^\d]/g, "");
+    if (digitsOnly.length > 0) {
+      values.add(digitsOnly);
+    }
+    if (digitsOnly.length === 11 && digitsOnly.startsWith("1")) {
+      values.add(digitsOnly.slice(1));
+    }
+    if (digitsOnly.length > 10) {
+      values.add(digitsOnly.slice(-10));
+    }
+
+    return [...values];
   }
 }

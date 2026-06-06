@@ -8,26 +8,40 @@ const envSchema = z.object({
   THREE_CX_TENANT_URL: z.string().url().optional(),
   THREE_CX_WEBHOOK_SECRET: z.string().min(1).optional(),
   FOURD_EMR_BASE_URL: z.string().url(),
+  FOURD_EMR_APP_BASE_URL: z.string().url().optional(),
   FOURD_EMR_API_KEY: z.string().min(1).optional(),
+  FOURD_EMR_CLIENT_ID: z.string().min(1).optional(),
+  FOURD_EMR_CLIENT_SECRET: z.string().min(1).optional(),
+  FOURD_EMR_CLIENT_ID_HEADER: z.string().default("x-client-id"),
+  FOURD_EMR_CLIENT_SECRET_HEADER: z.string().default("x-client-secret"),
   FOURD_EMR_BEARER_TOKEN: z.string().min(1).optional(),
   FOURD_EMR_OAUTH_TOKEN_URL: z.string().url().optional(),
   FOURD_EMR_OAUTH_CLIENT_ID: z.string().min(1).optional(),
   FOURD_EMR_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
   FOURD_EMR_OAUTH_SCOPE: z.string().min(1).optional(),
   FOURD_EMR_OAUTH_AUDIENCE: z.string().min(1).optional(),
-  FOURD_EMR_PATIENT_LOOKUP_PATH: z.string().default("/api/patients/search"),
+  FOURD_EMR_PATIENT_LOOKUP_PATH: z.string().default("/api/public/patients"),
   FOURD_EMR_PATIENT_LOOKUP_PHONE_PARAM: z.string().default("phone"),
-  FOURD_EMR_PATIENT_LOOKUP_RESULT_PATH: z.string().default("data.patients"),
-  FOURD_EMR_PATIENT_ID_PATH: z.string().default("id"),
-  FOURD_EMR_PATIENT_NAME_PATH: z.string().default("fullName"),
-  FOURD_EMR_PATIENT_MRN_PATH: z.string().default("mrn"),
-  FOURD_EMR_PATIENT_DOB_PATH: z.string().default("dateOfBirth"),
-  FOURD_EMR_PATIENT_CHART_PATH: z.string().default("chartNumber"),
-  FOURD_EMR_SCREEN_POP_PATH_TEMPLATE: z.string().default("/patients/{patientId}"),
-  FOURD_EMR_PATIENT_SEARCH_PATH_TEMPLATE: z.string().default("/patients/search?phone={phone}"),
-  FOURD_EMR_NEW_PATIENT_PATH_TEMPLATE: z.string().default("/patients/new?phone={phone}"),
-  FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE: z.string().default("/api/patients/{patientId}/notes"),
-  FOURD_EMR_TRANSCRIPT_NOTE_TYPE: z.string().default("phone_call_transcript"),
+  FOURD_EMR_PATIENT_LOOKUP_RESULT_PATH: z.string().default("Items"),
+  FOURD_EMR_PATIENT_LOOKUP_PAGE_COUNT: z.coerce.number().int().positive().default(20),
+  FOURD_EMR_PATIENT_LOOKUP_PAGE_SKIP: z.coerce.number().int().min(0).default(0),
+  FOURD_EMR_PATIENT_LOOKUP_NEED_TOTAL_COUNT: z.coerce.boolean().default(true),
+  FOURD_EMR_PATIENT_ID_PATH: z.string().default("PatientId"),
+  FOURD_EMR_PATIENT_NAME_PATH: z.string().default(""),
+  FOURD_EMR_PATIENT_FIRST_NAME_PATH: z.string().default("FirstName"),
+  FOURD_EMR_PATIENT_LAST_NAME_PATH: z.string().default("LastName"),
+  FOURD_EMR_PATIENT_MRN_PATH: z.string().default("AccountNumber"),
+  FOURD_EMR_PATIENT_DOB_PATH: z.string().default("DOB"),
+  FOURD_EMR_PATIENT_CHART_PATH: z.string().default("PatientId"),
+  FOURD_EMR_SCREEN_POP_PATH_TEMPLATE: z
+    .string()
+    .default("https://app.4d-emr.com/#/patients/profile/details?ptId={patientId}"),
+  FOURD_EMR_PATIENT_SEARCH_PATH_TEMPLATE: z.string().default(""),
+  FOURD_EMR_NEW_PATIENT_PATH_TEMPLATE: z.string().default(""),
+  FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE: z.string().default("/api/public/chartNotes"),
+  FOURD_EMR_TELEPHONE_NOTE_TYPE_ID: z.coerce.number().int().positive().default(2),
+  FOURD_EMR_INCLUDE_PATIENT_ID_IN_NOTE: z.coerce.boolean().default(false),
+  FOURD_EMR_DEFAULT_APPOINTMENT_ID: z.coerce.number().int().positive().optional(),
   SCREEN_POP_MULTI_MATCH_ACTION: z
     .enum(["pick_list", "open_first", "search"])
     .default("pick_list"),
@@ -45,7 +59,12 @@ export type AppConfig = {
   threeCxTenantUrl?: string;
   threeCxWebhookSecret?: string;
   fourdEmrBaseUrl: string;
+  fourdEmrAppBaseUrl: string;
   fourdEmrApiKey?: string;
+  fourdEmrClientId?: string;
+  fourdEmrClientSecret?: string;
+  fourdEmrClientIdHeader: string;
+  fourdEmrClientSecretHeader: string;
   fourdEmrBearerToken?: string;
   fourdEmrOauth?: {
     tokenUrl: string;
@@ -58,16 +77,23 @@ export type AppConfig = {
     patientLookupPath: string;
     patientLookupPhoneParam: string;
     patientLookupResultPath: string;
+    patientLookupPageCount: number;
+    patientLookupPageSkip: number;
+    patientLookupNeedTotalCount: boolean;
     patientIdPath: string;
     patientNamePath: string;
+    patientFirstNamePath: string;
+    patientLastNamePath: string;
     patientMrnPath: string;
     patientDobPath: string;
     patientChartPath: string;
-    screenPopPathTemplate: string;
-    patientSearchPathTemplate: string;
-    newPatientPathTemplate: string;
+    screenPopPathTemplate?: string;
+    patientSearchPathTemplate?: string;
+    newPatientPathTemplate?: string;
     noteCreatePathTemplate: string;
-    transcriptNoteType: string;
+    telephoneNoteTypeId: number;
+    includePatientIdInNote: boolean;
+    defaultAppointmentId?: number;
   };
   screenPopBehavior: {
     multiMatchAction: "pick_list" | "open_first" | "search";
@@ -83,6 +109,11 @@ let cachedConfig: AppConfig | null = null;
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
+}
+
+function cleanTemplate(template: string): string | undefined {
+  const normalized = template.trim();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 export function getConfig(): AppConfig {
@@ -112,7 +143,12 @@ export function getConfig(): AppConfig {
     threeCxTenantUrl: parsed.THREE_CX_TENANT_URL,
     threeCxWebhookSecret: parsed.THREE_CX_WEBHOOK_SECRET,
     fourdEmrBaseUrl: trimTrailingSlash(parsed.FOURD_EMR_BASE_URL),
+    fourdEmrAppBaseUrl: trimTrailingSlash(parsed.FOURD_EMR_APP_BASE_URL ?? parsed.FOURD_EMR_BASE_URL),
     fourdEmrApiKey: parsed.FOURD_EMR_API_KEY,
+    fourdEmrClientId: parsed.FOURD_EMR_CLIENT_ID,
+    fourdEmrClientSecret: parsed.FOURD_EMR_CLIENT_SECRET,
+    fourdEmrClientIdHeader: parsed.FOURD_EMR_CLIENT_ID_HEADER,
+    fourdEmrClientSecretHeader: parsed.FOURD_EMR_CLIENT_SECRET_HEADER,
     fourdEmrBearerToken: parsed.FOURD_EMR_BEARER_TOKEN,
     fourdEmrOauth:
       parsed.FOURD_EMR_OAUTH_TOKEN_URL &&
@@ -130,16 +166,23 @@ export function getConfig(): AppConfig {
       patientLookupPath: parsed.FOURD_EMR_PATIENT_LOOKUP_PATH,
       patientLookupPhoneParam: parsed.FOURD_EMR_PATIENT_LOOKUP_PHONE_PARAM,
       patientLookupResultPath: parsed.FOURD_EMR_PATIENT_LOOKUP_RESULT_PATH,
+      patientLookupPageCount: parsed.FOURD_EMR_PATIENT_LOOKUP_PAGE_COUNT,
+      patientLookupPageSkip: parsed.FOURD_EMR_PATIENT_LOOKUP_PAGE_SKIP,
+      patientLookupNeedTotalCount: parsed.FOURD_EMR_PATIENT_LOOKUP_NEED_TOTAL_COUNT,
       patientIdPath: parsed.FOURD_EMR_PATIENT_ID_PATH,
       patientNamePath: parsed.FOURD_EMR_PATIENT_NAME_PATH,
+      patientFirstNamePath: parsed.FOURD_EMR_PATIENT_FIRST_NAME_PATH,
+      patientLastNamePath: parsed.FOURD_EMR_PATIENT_LAST_NAME_PATH,
       patientMrnPath: parsed.FOURD_EMR_PATIENT_MRN_PATH,
       patientDobPath: parsed.FOURD_EMR_PATIENT_DOB_PATH,
       patientChartPath: parsed.FOURD_EMR_PATIENT_CHART_PATH,
-      screenPopPathTemplate: parsed.FOURD_EMR_SCREEN_POP_PATH_TEMPLATE,
-      patientSearchPathTemplate: parsed.FOURD_EMR_PATIENT_SEARCH_PATH_TEMPLATE,
-      newPatientPathTemplate: parsed.FOURD_EMR_NEW_PATIENT_PATH_TEMPLATE,
+      screenPopPathTemplate: cleanTemplate(parsed.FOURD_EMR_SCREEN_POP_PATH_TEMPLATE),
+      patientSearchPathTemplate: cleanTemplate(parsed.FOURD_EMR_PATIENT_SEARCH_PATH_TEMPLATE),
+      newPatientPathTemplate: cleanTemplate(parsed.FOURD_EMR_NEW_PATIENT_PATH_TEMPLATE),
       noteCreatePathTemplate: parsed.FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE,
-      transcriptNoteType: parsed.FOURD_EMR_TRANSCRIPT_NOTE_TYPE
+      telephoneNoteTypeId: parsed.FOURD_EMR_TELEPHONE_NOTE_TYPE_ID,
+      includePatientIdInNote: parsed.FOURD_EMR_INCLUDE_PATIENT_ID_IN_NOTE,
+      defaultAppointmentId: parsed.FOURD_EMR_DEFAULT_APPOINTMENT_ID
     },
     screenPopBehavior: {
       multiMatchAction: parsed.SCREEN_POP_MULTI_MATCH_ACTION,

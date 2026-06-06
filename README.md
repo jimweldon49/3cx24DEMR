@@ -40,21 +40,25 @@ cp .env.example .env
 Populate `.env` with your:
 
 - 3CX tenant URL
-- 4D EMR base URL
-- 4D EMR credentials (API key, static bearer token, or OAuth client credentials)
-- correct lookup/create endpoint mappings for your 4D API contract
+- 4D EMR API base URL (`FOURD_EMR_BASE_URL`)
+- 4D EMR app/UI base URL (`FOURD_EMR_APP_BASE_URL`)
+- 4D EMR credentials (API key, bearer token, or client-id/client-secret headers)
+- endpoint mappings for your exact 4D API contract
 
-If 4D EMR uses OAuth client credentials, set:
+Optional auth settings:
 
-- `FOURD_EMR_OAUTH_TOKEN_URL`
-- `FOURD_EMR_OAUTH_CLIENT_ID`
-- `FOURD_EMR_OAUTH_CLIENT_SECRET`
-- optional: `FOURD_EMR_OAUTH_SCOPE`, `FOURD_EMR_OAUTH_AUDIENCE`
-- optional behavior settings:
-  - `FOURD_EMR_TRANSCRIPT_NOTE_TYPE`
-  - `SCREEN_POP_MULTI_MATCH_ACTION`
-  - `SCREEN_POP_NO_MATCH_ACTION`
-  - `REDACT_SSN_IN_TRANSCRIPTS`
+- `FOURD_EMR_API_KEY`
+- `FOURD_EMR_BEARER_TOKEN`
+- `FOURD_EMR_CLIENT_ID`
+- `FOURD_EMR_CLIENT_SECRET`
+
+Optional behavior settings:
+
+- `FOURD_EMR_TELEPHONE_NOTE_TYPE_ID` (default `2`)
+- `FOURD_EMR_DEFAULT_APPOINTMENT_ID` (fallback only)
+- `SCREEN_POP_MULTI_MATCH_ACTION`
+- `SCREEN_POP_NO_MATCH_ACTION`
+- `REDACT_SSN_IN_TRANSCRIPTS`
 
 ### 3) Run locally
 
@@ -86,6 +90,7 @@ Looks up patient by caller number and returns screen-pop details:
 - `screenPopAction: open_patient | pick_list | new_patient | search | none`
 - `screenPopUrl` resolved from template(s)
 - `matchCandidates` when multiple patients are found
+- If your EMR has no dedicated search/new URL, `screenPopUrl` falls back to app home (`.../#`) for search/new actions.
 
 Example payload:
 
@@ -118,12 +123,19 @@ Stores transcript text for an active call session (or accepts early if call-star
 
 ### `POST /webhooks/3cx/call-end`
 
-Finalizes call handling and pushes transcript into 4D EMR patient chart when patient context exists.
+Finalizes call handling and pushes transcript into 4D EMR chart notes when patient context exists.
+
+`AppointmentId` is required by the 4D chart note API and can be sent in:
+
+- `call-start` payload (`appointmentId`)
+- or `call-end` payload (`appointmentId`)
+- or configured as `FOURD_EMR_DEFAULT_APPOINTMENT_ID` (not recommended except temporary testing)
 
 ```json
 {
   "eventId": "evt-003",
   "callId": "call-123",
+  "appointmentId": 1111,
   "endedAt": "2026-06-04T17:06:00.000Z"
 }
 ```
@@ -155,9 +167,19 @@ If you set `THREE_CX_WEBHOOK_SECRET`, include a signature header:
 
 - `FOURD_EMR_PATIENT_LOOKUP_RESULT_PATH`
 - `FOURD_EMR_PATIENT_ID_PATH`
-- `FOURD_EMR_PATIENT_NAME_PATH`
+- `FOURD_EMR_PATIENT_FIRST_NAME_PATH`
+- `FOURD_EMR_PATIENT_LAST_NAME_PATH`
 - `FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE`
 - etc.
+
+This repository is pre-configured with defaults that match the 4D examples you provided:
+
+- Lookup endpoint: `/api/public/patients` (with `page.*` query params)
+- Result list path: `Items`
+- Patient ID path: `PatientId`
+- Name composition: `FirstName` + `LastName`
+- Note endpoint: `/api/public/chartNotes`
+- Telephone chart note type: `ChartNoteTypeID = 2`
 
 If your 4D API response differs, update `.env` mapping values first.  
 If payload shape for note creation differs, adjust `appendTranscriptToPatientChart()` in:
