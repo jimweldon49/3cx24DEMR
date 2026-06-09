@@ -118,6 +118,9 @@ export class FourdEmrClient {
     if (this.config.fourdEmrClientSecret) {
       headers[this.config.fourdEmrClientSecretHeader] = this.config.fourdEmrClientSecret;
     }
+    if (this.config.fourdEmrExtraAuthHeaderName && this.config.fourdEmrExtraAuthHeaderValue) {
+      headers[this.config.fourdEmrExtraAuthHeaderName] = this.config.fourdEmrExtraAuthHeaderValue;
+    }
     if (this.config.fourdEmrBearerToken) {
       headers.authorization = `Bearer ${this.config.fourdEmrBearerToken}`;
     }

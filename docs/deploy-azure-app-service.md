@@ -91,11 +91,22 @@ az webapp config appsettings set \
     FOURD_EMR_CLIENT_SECRET=<set-this> \
     FOURD_EMR_CLIENT_ID_HEADER=x-client-id \
     FOURD_EMR_CLIENT_SECRET_HEADER=x-client-secret \
+    FOURD_EMR_EXTRA_AUTH_HEADER_NAME= \
+    FOURD_EMR_EXTRA_AUTH_HEADER_VALUE= \
     FOURD_EMR_TELEPHONE_NOTE_TYPE_ID=2 \
     SCREEN_POP_MULTI_MATCH_ACTION=pick_list \
     SCREEN_POP_NO_MATCH_ACTION=new_patient \
     REDACT_SSN_IN_TRANSCRIPTS=true
 ```
+
+If 4D requires three auth headers (for example: `Subscription-key`, `client-id`, `client-secret`), map them as:
+
+- `FOURD_EMR_EXTRA_AUTH_HEADER_NAME=Subscription-key`
+- `FOURD_EMR_EXTRA_AUTH_HEADER_VALUE=<subscription-key>`
+- `FOURD_EMR_CLIENT_ID_HEADER=client-id`
+- `FOURD_EMR_CLIENT_ID=<client-id>`
+- `FOURD_EMR_CLIENT_SECRET_HEADER=client-secret`
+- `FOURD_EMR_CLIENT_SECRET=<client-secret>`
 
 Then set 4D mapping fields:
 

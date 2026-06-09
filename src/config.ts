@@ -14,6 +14,8 @@ const envSchema = z.object({
   FOURD_EMR_CLIENT_SECRET: z.string().min(1).optional(),
   FOURD_EMR_CLIENT_ID_HEADER: z.string().default("x-client-id"),
   FOURD_EMR_CLIENT_SECRET_HEADER: z.string().default("x-client-secret"),
+  FOURD_EMR_EXTRA_AUTH_HEADER_NAME: z.string().min(1).optional(),
+  FOURD_EMR_EXTRA_AUTH_HEADER_VALUE: z.string().min(1).optional(),
   FOURD_EMR_BEARER_TOKEN: z.string().min(1).optional(),
   FOURD_EMR_OAUTH_TOKEN_URL: z.string().url().optional(),
   FOURD_EMR_OAUTH_CLIENT_ID: z.string().min(1).optional(),
@@ -66,6 +68,8 @@ export type AppConfig = {
   fourdEmrClientSecret?: string;
   fourdEmrClientIdHeader: string;
   fourdEmrClientSecretHeader: string;
+  fourdEmrExtraAuthHeaderName?: string;
+  fourdEmrExtraAuthHeaderValue?: string;
   fourdEmrBearerToken?: string;
   fourdEmrOauth?: {
     tokenUrl: string;
@@ -135,6 +139,16 @@ export function getConfig(): AppConfig {
       "FOURD_EMR_OAUTH_TOKEN_URL, FOURD_EMR_OAUTH_CLIENT_ID, and FOURD_EMR_OAUTH_CLIENT_SECRET must be set together"
     );
   }
+  const extraAuthHeaderValues = [
+    parsed.FOURD_EMR_EXTRA_AUTH_HEADER_NAME,
+    parsed.FOURD_EMR_EXTRA_AUTH_HEADER_VALUE
+  ];
+  const extraAuthSetCount = extraAuthHeaderValues.filter((value) => Boolean(value)).length;
+  if (extraAuthSetCount > 0 && extraAuthSetCount < extraAuthHeaderValues.length) {
+    throw new Error(
+      "FOURD_EMR_EXTRA_AUTH_HEADER_NAME and FOURD_EMR_EXTRA_AUTH_HEADER_VALUE must be set together"
+    );
+  }
 
   const publicBaseUrl = parsed.PUBLIC_BASE_URL ?? `http://localhost:${parsed.PORT}`;
 
@@ -151,6 +165,8 @@ export function getConfig(): AppConfig {
     fourdEmrClientSecret: parsed.FOURD_EMR_CLIENT_SECRET,
     fourdEmrClientIdHeader: parsed.FOURD_EMR_CLIENT_ID_HEADER,
     fourdEmrClientSecretHeader: parsed.FOURD_EMR_CLIENT_SECRET_HEADER,
+    fourdEmrExtraAuthHeaderName: parsed.FOURD_EMR_EXTRA_AUTH_HEADER_NAME,
+    fourdEmrExtraAuthHeaderValue: parsed.FOURD_EMR_EXTRA_AUTH_HEADER_VALUE,
     fourdEmrBearerToken: parsed.FOURD_EMR_BEARER_TOKEN,
     fourdEmrOauth:
       parsed.FOURD_EMR_OAUTH_TOKEN_URL &&
