@@ -32,11 +32,11 @@ const journalBodySchema = z.object({
 });
 
 function isApiKeyValid(req: Request, config: AppConfig): boolean {
-  if (!config.apiKey) {
+  if (!config.crmTemplateApiKey) {
     return true;
   }
 
-  return req.get("x-api-key") === config.apiKey;
+  return req.get("x-api-key") === config.crmTemplateApiKey;
 }
 
 function normalizeDirection(direction: string | undefined): "inbound" | "outbound" | "unknown" {
