@@ -107,6 +107,28 @@ export class FourdEmrClient {
     await this.http.post(endpoint, payload);
   }
 
+  async createChartNoteForPatient(input: {
+    patientId: string;
+    noteText: string;
+    appointmentId?: number;
+  }): Promise<void> {
+    const endpoint = this.config.fourdMappings.noteCreatePathTemplate;
+    const appointmentId = input.appointmentId ?? this.config.fourdMappings.defaultAppointmentId;
+    if (this.config.fourdMappings.requireAppointmentId && !appointmentId) {
+      throw new Error("Cannot append transcript because appointmentId is required but missing");
+    }
+
+    const payload = {
+      SignedOn: new Date().toISOString(),
+      ChartNoteTypeID: this.config.fourdMappings.telephoneNoteTypeId,
+      NoteText: input.noteText,
+      PatientId: asPositiveInt(input.patientId) ?? input.patientId,
+      ...(appointmentId ? { AppointmentId: appointmentId } : {})
+    };
+
+    await this.http.post(endpoint, payload);
+  }
+
   private staticAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     if (this.config.fourdEmrApiKey) {

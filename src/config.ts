@@ -7,6 +7,7 @@ const envSchema = z.object({
   PUBLIC_BASE_URL: z.string().url().optional(),
   THREE_CX_TENANT_URL: z.string().url().optional(),
   THREE_CX_WEBHOOK_SECRET: z.string().min(1).optional(),
+  API_KEY: z.string().min(1).optional(),
   FOURD_EMR_BASE_URL: z.string().url(),
   FOURD_EMR_APP_BASE_URL: z.string().url().optional(),
   FOURD_EMR_API_KEY: z.string().min(1).optional(),
@@ -61,6 +62,7 @@ export type AppConfig = {
   publicBaseUrl: string;
   threeCxTenantUrl?: string;
   threeCxWebhookSecret?: string;
+  apiKey?: string;
   fourdEmrBaseUrl: string;
   fourdEmrAppBaseUrl: string;
   fourdEmrApiKey?: string;
@@ -158,6 +160,7 @@ export function getConfig(): AppConfig {
     publicBaseUrl: trimTrailingSlash(publicBaseUrl),
     threeCxTenantUrl: parsed.THREE_CX_TENANT_URL,
     threeCxWebhookSecret: parsed.THREE_CX_WEBHOOK_SECRET,
+    apiKey: parsed.API_KEY,
     fourdEmrBaseUrl: trimTrailingSlash(parsed.FOURD_EMR_BASE_URL),
     fourdEmrAppBaseUrl: trimTrailingSlash(parsed.FOURD_EMR_APP_BASE_URL ?? parsed.FOURD_EMR_BASE_URL),
     fourdEmrApiKey: parsed.FOURD_EMR_API_KEY,

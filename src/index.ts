@@ -6,6 +6,7 @@ import { FourdEmrClient } from "./clients/fourd-emr-client.js";
 import { CallSessionStore } from "./services/call-session-store.js";
 import { EventIdStore } from "./services/event-id-store.js";
 import { createWebhookRouter } from "./routes/webhooks.js";
+import { createCrmRouter } from "./routes/crm.js";
 
 const config = getConfig();
 const app = express();
@@ -39,6 +40,15 @@ app.use(
     fourdEmrClient,
     callSessions,
     processedEvents
+  })
+);
+
+app.use(
+  "/",
+  createCrmRouter({
+    config,
+    logger,
+    fourdEmrClient
   })
 );
 

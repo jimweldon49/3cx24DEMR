@@ -9,6 +9,7 @@ import { CallSessionStore } from "../services/call-session-store.js";
 import { isSignatureValid } from "../security/signature.js";
 import { asPositiveInt, normalizePhoneNumber } from "../utils.js";
 import { sanitizeTranscriptText } from "../transcript/sanitizer.js";
+import { appHomeUrl, newPatientUrl, screenPopUrl, searchUrl } from "../screen-pop.js";
 
 type RouterDependencies = {
   config: AppConfig;
@@ -63,49 +64,6 @@ function validateSignature(req: RequestWithRawBody, config: AppConfig): boolean 
     rawBody: req.rawBody,
     providedSignature: signatureHeader
   });
-}
-
-function screenPopUrl(config: AppConfig, patientId: string): string | undefined {
-  return buildUrlFromTemplate(config, config.fourdMappings.screenPopPathTemplate, {
-    patientId
-  });
-}
-
-function searchUrl(config: AppConfig, phone: string): string | undefined {
-  return buildUrlFromTemplate(config, config.fourdMappings.patientSearchPathTemplate, {
-    phone
-  });
-}
-
-function newPatientUrl(config: AppConfig, phone: string): string | undefined {
-  return buildUrlFromTemplate(config, config.fourdMappings.newPatientPathTemplate, {
-    phone
-  });
-}
-
-function buildUrlFromTemplate(
-  config: AppConfig,
-  template: string | undefined,
-  values: Record<string, string | undefined>
-): string | undefined {
-  if (!template) {
-    return undefined;
-  }
-
-  let url = template;
-  for (const [key, rawValue] of Object.entries(values)) {
-    url = url.replaceAll(`{${key}}`, encodeURIComponent(rawValue ?? ""));
-  }
-
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-
-  return `${config.fourdEmrAppBaseUrl}${url}`;
-}
-
-function appHomeUrl(config: AppConfig): string {
-  return `${config.fourdEmrAppBaseUrl}/#`;
 }
 
 function summarizePatient(patient: PatientSummary): Record<string, string | undefined> {
