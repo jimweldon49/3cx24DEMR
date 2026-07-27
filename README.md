@@ -13,7 +13,7 @@ This repo reflects what's actually deployed to the `ca-3cx-4d-prod` Azure Contai
 This is the **primary, currently-active** integration. Configured in 3CX Management Console → Settings → CRM Integration → Server Side, using the "4D EMR" template (XML on file separately, not checked into this repo).
 
 - `GET /crm/lookup?phoneNumber=[Number]&callId=[CallID]` — fires synchronously on every call. Requires header `X-Api-Key` matching `CRM_TEMPLATE_API_KEY`. Returns `ContactId`, `ContactUrl`, `FirstName`, `LastName`, `CompanyName`, `PhoneBusiness`, `MRN`, `DOB`.
-- `POST /crm/report-call` — fires on call end, carrying 3CX's own `[Transcription]`/`[Summary]` tokens. Pushes to the matched patient's chart note, or creates/updates a 4D EMR Lead if no patient matched.
+- `POST /crm/report-call` — fires on call end, carrying 3CX's own `[Transcription]`/`[Summary]` tokens. Pushes to a 4D EMR Lead (find-or-create by phone number) for every caller, matched patient or not. Chart notes (`/api/public/chartNotes`) were tried first but don't land in a visible category regardless of the type id sent (confirmed by inspection and by 4D EMR support, 2026-07-27) — Leads is the destination 4D EMR support pointed to instead. A matched patient's real name is used for the lead so it's identifiable in the Nourish → Leads list rather than showing as an unknown caller.
 - `GET /crm/patient-summary?pid=&exp=&sig=` — a small self-hosted patient summary page. **Not** part of the 3CX template contract — this is what `ContactUrl` points to for a matched patient, instead of linking directly into 4D EMR's own web app.
 
 **Why `/crm/patient-summary` exists:** 4D EMR's web app (`app.4d-emr.com`) scopes its authenticated session to a per-tab `TabId` in `sessionStorage`, with no return-to-URL after login. A browser tab opened fresh by 3CX always hits their login screen and, after logging in, lands on a generic home page — never the intended patient. 4D EMR support confirmed (2026-07-27) this is deliberate (no SSO, citing HIPAA risk) and pointed to how Weave Communications integrates: pull patient data via the API, render it yourself, rather than deep-linking into 4D EMR's session. `/crm/patient-summary` does exactly that — server-rendered from `/api/public/patients/{id}` and `/api/public/appointments?patientId={id}`, with a link through to the real 4D EMR chart for when an agent needs to actually edit the record.
@@ -47,7 +47,7 @@ Health check: `GET /health`
 
 ## 4D EMR API mapping
 
-`src/config.js` exposes env-driven mappings so you can adapt to your exact 4D API shape without changing code — see `.env.example` for the full list (patient lookup path/params, screen-pop URL template, chart-note endpoint, appointment lookup, lead fallback, etc).
+`src/config.js` exposes env-driven mappings so you can adapt to your exact 4D API shape without changing code — see `.env.example` for the full list (patient lookup path/params, screen-pop URL template, appointment lookup, lead endpoints, etc).
 
 Auth to 4D EMR supports API key, bearer token, OAuth2 client-credentials, or up to three custom headers (`client-id` / `client-secret` / a third header like `Subscription-key` — whatever your 4D tenant requires).
 

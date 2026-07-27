@@ -69,44 +69,28 @@ export class FourdEmrClient {
         const results = getByPath(response.data, "Items");
         return Array.isArray(results) ? results : [];
     }
-    async appendTranscriptToPatientChart(session, transcript) {
-        const endpoint = this.config.fourdMappings.noteCreatePathTemplate;
-        const appointmentId = session.appointmentId ?? this.config.fourdMappings.defaultAppointmentId;
-        if (this.config.fourdMappings.requireAppointmentId && !appointmentId) {
-            throw new Error("Cannot append transcript because appointmentId is required but missing");
-        }
-        const payload = {
-            SignedOn: new Date().toISOString(),
-            ChartNoteTypeID: this.config.fourdMappings.telephoneNoteTypeId,
-            NoteText: this.buildCallNoteText(session, transcript),
-            ...(appointmentId
-                ? {
-                    AppointmentId: appointmentId
-                }
-                : {}),
-            ...(this.config.fourdMappings.includePatientIdInNote && session.patient?.id
-                ? {
-                    PatientId: asPositiveInt(session.patient.id) ?? session.patient.id
-                }
-                : {})
-        };
-        await this.http.post(endpoint, payload);
-    }
-    // Caller didn't match an existing patient. 4D EMR's Leads API has no
-    // lookup-by-phone, so we remember the LeadId we get back from Lead-Create
-    // ourselves and reuse it for repeat callers. This cache is in-memory only --
-    // a container restart loses it, and the next call from that number creates
-    // a duplicate lead in 4D EMR.
+    // Chart notes (ChartNoteTypeID) don't land in a category visible in 4D EMR's
+    // UI regardless of the type id sent -- confirmed both by inspection (every
+    // note this integration ever wrote reads back as Type 12, never the intended
+    // Type 2, "telephone") and by 4D EMR support (2026-07-27), who pointed to the
+    // Leads endpoints as the correct place to push call info/notes -- for every
+    // caller, not just unmatched ones. So all call transcripts, matched patient
+    // or not, go through the same find-or-create-lead + append-note path. 4D EMR's
+    // Leads API has no lookup-by-phone, so we remember the LeadId we get back from
+    // Lead-Create ourselves and reuse it for repeat callers. This cache is
+    // in-memory only -- a container restart loses it, and the next call from that
+    // number creates a duplicate lead in 4D EMR.
     leadIdByPhone = new Map();
-    async findOrCreateLeadId(fromNumber) {
+    async findOrCreateLeadId(fromNumber, patientName) {
         const cached = this.leadIdByPhone.get(fromNumber);
         if (cached) {
             return cached;
         }
+        const [firstName, ...lastParts] = (patientName ?? "").trim().split(/\s+/).filter(Boolean);
         const endpoint = this.config.fourdMappings.leadCreatePath;
         const response = await this.http.post(endpoint, {
-            FirstName: "Unknown",
-            LastName: fromNumber,
+            FirstName: firstName || "Unknown",
+            LastName: lastParts.length > 0 ? lastParts.join(" ") : fromNumber,
             Phone: fromNumber,
             ReferringSource: this.config.fourdMappings.leadReferringSource
         });
@@ -118,7 +102,7 @@ export class FourdEmrClient {
         return leadId;
     }
     async appendTranscriptToLead(session, transcript) {
-        const leadId = await this.findOrCreateLeadId(session.fromNumber);
+        const leadId = await this.findOrCreateLeadId(session.fromNumber, session.patient?.fullName);
         const endpoint = this.config.fourdMappings.leadNoteCreatePath;
         await this.http.post(endpoint, {
             LeadId: leadId,
@@ -126,18 +110,12 @@ export class FourdEmrClient {
         });
         return leadId;
     }
-    // Single entry point for both call-end paths (CFD webhook and CRM
-    // template ReportCall) so the patient-vs-lead branching lives in one place.
     async pushCallTranscript(session, transcript) {
-        if (session.patient) {
-            await this.appendTranscriptToPatientChart(session, transcript);
-            return { destination: "patient_chart", patientId: session.patient.id };
-        }
         if (!session.fromNumber) {
-            throw new Error("Cannot create a lead without a caller phone number");
+            throw new Error("Cannot push call transcript without a caller phone number");
         }
         const leadId = await this.appendTranscriptToLead(session, transcript);
-        return { destination: "lead_note", leadId };
+        return { destination: "lead_note", leadId, patientId: session.patient?.id };
     }
     buildCallNoteText(session, transcript) {
         const callSummaryLines = [
