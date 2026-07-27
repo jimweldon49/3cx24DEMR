@@ -1,212 +1,66 @@
 # 3CX v20 + 4D EMR Integration
 
-This repository now contains a production-ready starter service that connects **3CX v20 call events** to **4D EMR**:
+Connects **3CX v20** call events to **4D EMR** for screen pop and call-transcript writeback.
 
-1. **Call start:** lookup patient by caller phone and return screen-pop context.
-2. **During/after call:** accept transcript payloads.
-3. **Call end:** write transcript into the matching patient chart in 4D EMR.
+This repo reflects what's actually deployed to the `ca-3cx-4d-prod` Azure Container App (reconciled 2026-07-27 — earlier revisions of this repo drifted from what was live; see git history if you need the story).
 
 ---
 
-## What this service does
+## Two integration paths
 
-- Exposes secure webhook endpoints for 3CX event ingestion.
-- Validates webhook signatures (HMAC SHA-256) when a shared secret is configured.
-- Uses an in-memory session store per call (`callId`) to correlate start/transcript/end events.
-- Supports idempotency for repeated webhook events via `eventId`.
-- Supports configurable screen-pop behavior:
-  - single match -> open patient chart
-  - multiple matches -> pick-list/search/open-first
-  - no match -> new-patient/search/none
-- Redacts SSNs from transcript text before writeback when enabled.
-- Uses configurable response-path mappings so you can adapt to your exact 4D EMR API shape without changing code.
+### 1. 3CX CRM Integration Template (`src/routes/crm.js`, mounted at `/crm`)
+
+This is the **primary, currently-active** integration. Configured in 3CX Management Console → Settings → CRM Integration → Server Side, using the "4D EMR" template (XML on file separately, not checked into this repo).
+
+- `GET /crm/lookup?phoneNumber=[Number]&callId=[CallID]` — fires synchronously on every call. Requires header `X-Api-Key` matching `CRM_TEMPLATE_API_KEY`. Returns `ContactId`, `ContactUrl`, `FirstName`, `LastName`, `CompanyName`, `PhoneBusiness`, `MRN`, `DOB`.
+- `POST /crm/report-call` — fires on call end, carrying 3CX's own `[Transcription]`/`[Summary]` tokens. Pushes to the matched patient's chart note, or creates/updates a 4D EMR Lead if no patient matched.
+- `GET /crm/patient-summary?pid=&exp=&sig=` — a small self-hosted patient summary page. **Not** part of the 3CX template contract — this is what `ContactUrl` points to for a matched patient, instead of linking directly into 4D EMR's own web app.
+
+**Why `/crm/patient-summary` exists:** 4D EMR's web app (`app.4d-emr.com`) scopes its authenticated session to a per-tab `TabId` in `sessionStorage`, with no return-to-URL after login. A browser tab opened fresh by 3CX always hits their login screen and, after logging in, lands on a generic home page — never the intended patient. 4D EMR support confirmed (2026-07-27) this is deliberate (no SSO, citing HIPAA risk) and pointed to how Weave Communications integrates: pull patient data via the API, render it yourself, rather than deep-linking into 4D EMR's session. `/crm/patient-summary` does exactly that — server-rendered from `/api/public/patients/{id}` and `/api/public/appointments?patientId={id}`, with a link through to the real 4D EMR chart for when an agent needs to actually edit the record.
+
+Because this page is opened by a bare browser navigation (not a server-to-server call from 3CX), it can't carry the `X-Api-Key` header. It's protected instead by a short-lived HMAC-signed token (`patientSummaryLink.js`) so patient data isn't exposed via a guessable `?pid=NNN` URL. Links expire after `PATIENT_SUMMARY_LINK_TTL_MINUTES` (default 30).
+
+### 2. Call Flow Designer webhooks (`src/routes/webhooks.js`, mounted at `/webhooks`)
+
+An older, separate integration path — a 3CX Call Flow Designer script POSTs call events here directly instead of going through the CRM template. Kept for compatibility; not required if the CRM template above is configured.
+
+- `POST /webhooks/3cx/call-start`
+- `POST /webhooks/3cx/transcript`
+- `POST /webhooks/3cx/call-end`
+- `GET /webhooks/screen-pop/:callId`
+
+Optional HMAC signature validation via `THREE_CX_WEBHOOK_SECRET` (`x-3cx-signature` header).
 
 ---
 
 ## Quick start
 
-### 1) Install
-
 ```bash
 npm install
+cp .env.example .env   # fill in your 3CX/4D EMR values
+npm run dev             # or: npm start
 ```
 
-### 2) Configure environment
-
-```bash
-cp .env.example .env
-```
-
-Populate `.env` with your:
-
-- 3CX tenant URL
-- 4D EMR API base URL (`FOURD_EMR_BASE_URL`)
-- 4D EMR app/UI base URL (`FOURD_EMR_APP_BASE_URL`)
-- 4D EMR credentials (API key, bearer token, or client-id/client-secret headers)
-- endpoint mappings for your exact 4D API contract
-
-Optional auth settings:
-
-- `FOURD_EMR_API_KEY`
-- `FOURD_EMR_BEARER_TOKEN`
-- `FOURD_EMR_CLIENT_ID`
-- `FOURD_EMR_CLIENT_SECRET`
-- `FOURD_EMR_CLIENT_ID_HEADER`
-- `FOURD_EMR_CLIENT_SECRET_HEADER`
-- `FOURD_EMR_EXTRA_AUTH_HEADER_NAME`
-- `FOURD_EMR_EXTRA_AUTH_HEADER_VALUE`
-
-Optional behavior settings:
-
-- `FOURD_EMR_TELEPHONE_NOTE_TYPE_ID` (default `2`)
-- `FOURD_EMR_DEFAULT_APPOINTMENT_ID` (fallback only)
-- `SCREEN_POP_MULTI_MATCH_ACTION`
-- `SCREEN_POP_NO_MATCH_ACTION`
-- `REDACT_SSN_IN_TRANSCRIPTS`
-
-### 3) Run locally
-
-```bash
-npm run dev
-```
-
-For production:
-
-```bash
-npm run build
-npm start
-```
-
-Health check:
-
-- `GET /health`
+Health check: `GET /health`
 
 ---
 
-## Webhook endpoints
+## 4D EMR API mapping
 
-Base route: `/webhooks`
+`src/config.js` exposes env-driven mappings so you can adapt to your exact 4D API shape without changing code — see `.env.example` for the full list (patient lookup path/params, screen-pop URL template, chart-note endpoint, appointment lookup, lead fallback, etc).
 
-### `POST /webhooks/3cx/call-start`
-
-Looks up patient by caller number and returns screen-pop details:
-
-- `screenPopAction: open_patient | pick_list | new_patient | search | none`
-- `screenPopUrl` resolved from template(s)
-- `matchCandidates` when multiple patients are found
-- If your EMR has no dedicated search/new URL, `screenPopUrl` falls back to app home (`.../#`) for search/new actions.
-
-Example payload:
-
-```json
-{
-  "eventId": "evt-001",
-  "callId": "call-123",
-  "fromNumber": "+15551234567",
-  "toNumber": "+15557654321",
-  "direction": "inbound",
-  "agentExtension": "101",
-  "startedAt": "2026-06-04T17:00:00.000Z",
-  "metadata": {
-    "queue": "front-desk"
-  }
-}
-```
-
-### `POST /webhooks/3cx/transcript`
-
-Stores transcript text for an active call session (or accepts early if call-start not seen yet).
-
-```json
-{
-  "eventId": "evt-002",
-  "callId": "call-123",
-  "transcript": "Patient is requesting refill for medication..."
-}
-```
-
-### `POST /webhooks/3cx/call-end`
-
-Finalizes call handling and pushes transcript into 4D EMR chart notes when patient context exists.
-
-`appointmentId` can be sent when available and will be forwarded to 4D.
-By default, the integration does **not** require it (`FOURD_EMR_REQUIRE_APPOINTMENT_ID=false`).
-If your 4D tenant requires it, enable strict mode and provide it from your call events.
-
-Possible sources:
-
-- `call-start` payload (`appointmentId`)
-- or `call-end` payload (`appointmentId`)
-- or configured as `FOURD_EMR_DEFAULT_APPOINTMENT_ID` (not recommended except temporary testing)
-
-```json
-{
-  "eventId": "evt-003",
-  "callId": "call-123",
-  "appointmentId": 1111,
-  "endedAt": "2026-06-04T17:06:00.000Z"
-}
-```
-
-### `GET /webhooks/screen-pop/:callId`
-
-Returns call context, chosen screen-pop action, patient context (if selected), candidate list (if multiple), and screen-pop URL.
+Auth to 4D EMR supports API key, bearer token, OAuth2 client-credentials, or up to three custom headers (`client-id` / `client-secret` / a third header like `Subscription-key` — whatever your 4D tenant requires).
 
 ---
 
-## 3CX configuration notes
+## Deployment
 
-3CX implementations vary by deployment pattern (CFD app, webhook relay, middle-tier integration), but the standard pattern is:
-
-1. Send call start events to `POST /webhooks/3cx/call-start`.
-2. Send transcript events (if generated separately) to `POST /webhooks/3cx/transcript`.
-3. Send call completion events to `POST /webhooks/3cx/call-end`.
-4. Use the `screenPopUrl` value from call-start response in the agent desktop/flow to open the patient chart.
-
-If you set `THREE_CX_WEBHOOK_SECRET`, include a signature header:
-
-- `x-3cx-signature: sha256=<hex-hmac-of-raw-json-body>`
+Deployed as an Azure Container App (`ca-3cx-4d-prod`), built via `az acr build` (no local Docker required) and rolled out with `az containerapp update --image ...`. `docs/deploy-azure-app-service.md` describes an alternative App Service deployment path that was not actually used for the current production instance.
 
 ---
 
-## 4D EMR mapping notes
+## Production guidance
 
-`src/config.ts` supports mapping fields to avoid hardcoding a specific 4D schema:
-
-- `FOURD_EMR_PATIENT_LOOKUP_RESULT_PATH`
-- `FOURD_EMR_PATIENT_ID_PATH`
-- `FOURD_EMR_PATIENT_FIRST_NAME_PATH`
-- `FOURD_EMR_PATIENT_LAST_NAME_PATH`
-- `FOURD_EMR_NOTE_CREATE_PATH_TEMPLATE`
-- etc.
-
-This repository is pre-configured with defaults that match the 4D examples you provided:
-
-- Lookup endpoint: `/api/public/patients` (with `page.*` query params)
-- Result list path: `Items`
-- Patient ID path: `PatientId`
-- Name composition: `FirstName` + `LastName`
-- Note endpoint: `/api/public/chartNotes`
-- Telephone chart note type: `ChartNoteTypeID = 2`
-
-If your 4D API response differs, update `.env` mapping values first.  
-If payload shape for note creation differs, adjust `appendTranscriptToPatientChart()` in:
-
-- `src/clients/fourd-emr-client.ts`
-
----
-
-## Important production guidance
-
-- In-memory sessions are suitable for single-instance deployment.  
-  For HA/multi-instance workloads, replace `CallSessionStore` and `EventIdStore` with Redis.
-- Put this service behind TLS and IP allow-list inbound webhook traffic where possible.
-- Keep API credentials in a secret manager; avoid plaintext secrets in files.
-
----
-
-## Azure deployment
-
-If your organization uses Azure, see:
-
-- `docs/deploy-azure-app-service.md`
+- In-memory sessions/idempotency store (`CallSessionStore`, `EventIdStore`) are fine for a single instance. Move to Redis before scaling to multiple replicas.
+- Keep `CRM_TEMPLATE_API_KEY` and 4D EMR credentials in Container App secrets/App Settings, not committed anywhere.
+- `/crm/patient-summary` renders real PHI — don't widen its TTL casually, and don't log full URLs (they contain a valid signed token) anywhere persistent.
