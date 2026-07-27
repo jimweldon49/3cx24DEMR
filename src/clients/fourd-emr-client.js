@@ -5,11 +5,13 @@ export class FourdEmrClient {
     http;
     config;
     logger;
+    leadIdStore;
     oauthTokenCache;
     oauthTokenPromise;
-    constructor(config, logger) {
+    constructor(config, logger, leadIdStore) {
         this.config = config;
         this.logger = logger;
+        this.leadIdStore = leadIdStore;
         this.http = axios.create({
             baseURL: config.fourdEmrBaseUrl,
             timeout: 15_000,
@@ -76,13 +78,12 @@ export class FourdEmrClient {
     // Leads endpoints as the correct place to push call info/notes -- for every
     // caller, not just unmatched ones. So all call transcripts, matched patient
     // or not, go through the same find-or-create-lead + append-note path. 4D EMR's
-    // Leads API has no lookup-by-phone, so we remember the LeadId we get back from
-    // Lead-Create ourselves and reuse it for repeat callers. This cache is
-    // in-memory only -- a container restart loses it, and the next call from that
-    // number creates a duplicate lead in 4D EMR.
-    leadIdByPhone = new Map();
+    // Leads API has no lookup-by-phone or lookup-by-id (confirmed by exhaustive
+    // testing), so leadIdStore (Table Storage) remembers the LeadId we get back
+    // from Lead-Create ourselves -- both to reuse it for repeat callers and so
+    // the patient-summary page can pull previous call notes back later.
     async findOrCreateLeadId(fromNumber, patientName) {
-        const cached = this.leadIdByPhone.get(fromNumber);
+        const cached = await this.leadIdStore.get(fromNumber);
         if (cached) {
             return cached;
         }
@@ -98,7 +99,7 @@ export class FourdEmrClient {
         if (!leadId) {
             throw new Error("Lead-Create response did not include an Id");
         }
-        this.leadIdByPhone.set(fromNumber, leadId);
+        await this.leadIdStore.set(fromNumber, leadId);
         return leadId;
     }
     async appendTranscriptToLead(session, transcript) {
@@ -116,6 +117,18 @@ export class FourdEmrClient {
         }
         const leadId = await this.appendTranscriptToLead(session, transcript);
         return { destination: "lead_note", leadId, patientId: session.patient?.id };
+    }
+    // Used by the patient-summary popup to show previous call history. Returns
+    // [] (rather than throwing) if this phone number has never had a lead
+    // created for it -- that's a normal first-call case, not an error.
+    async getPreviousCallNotes(fromNumber) {
+        const leadId = await this.leadIdStore.get(fromNumber);
+        if (!leadId) {
+            return [];
+        }
+        const endpoint = this.config.fourdMappings.leadNoteCreatePath;
+        const response = await this.http.get(endpoint, { params: { leadId } });
+        return Array.isArray(response.data) ? response.data : [];
     }
     buildCallNoteText(session, transcript) {
         const callSummaryLines = [

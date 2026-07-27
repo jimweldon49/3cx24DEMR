@@ -21,6 +21,10 @@ const PAGE_STYLE = `
   .appt:last-child { border-bottom: none; }
   .appt .when { font-weight: 600; }
   .appt .comment { color: #6b7280; font-size: 0.82rem; }
+  .call-note { padding: 0.6rem 0; border-bottom: 1px solid #f0f0f0; font-size: 0.86rem; }
+  .call-note:last-child { border-bottom: none; }
+  .call-note .when { font-weight: 600; font-size: 0.82rem; color: #374151; }
+  .call-note .transcript { color: #4b5563; margin-top: 0.2rem; white-space: pre-wrap; }
   .empty { color: #9ca3af; font-size: 0.88rem; }
   .cta { display: block; text-align: center; margin: 1.25rem 1.5rem 1.5rem; padding: 0.7rem; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; }
 `;
@@ -65,7 +69,32 @@ function renderAppointments(appointments) {
         .join("");
 }
 
-export function renderPatientSummaryPage({ patient, appointments, chartUrl }) {
+const TRANSCRIPT_MARKER = "\n\nTranscript:\n";
+
+function extractTranscript(body) {
+    const markerIndex = body.indexOf(TRANSCRIPT_MARKER);
+    return markerIndex === -1 ? body : body.slice(markerIndex + TRANSCRIPT_MARKER.length);
+}
+
+function renderPreviousCalls(previousCalls) {
+    if (!previousCalls || previousCalls.length === 0) {
+        return '<p class="empty">No previous calls on file.</p>';
+    }
+    const sorted = [...previousCalls].sort((a, b) => new Date(b.CreatedOn ?? 0) - new Date(a.CreatedOn ?? 0));
+    return sorted
+        .slice(0, 5)
+        .map((note) => {
+            const when = note.CreatedOn ? formatAppointmentDate(note.CreatedOn) : "Unknown date";
+            const transcript = extractTranscript(String(note.Body ?? ""));
+            return `<div class="call-note">
+        <div class="when">${escapeHtml(when)}</div>
+        <div class="transcript">${escapeHtml(transcript)}</div>
+      </div>`;
+        })
+        .join("");
+}
+
+export function renderPatientSummaryPage({ patient, appointments, previousCalls, chartUrl }) {
     const providerNames = (patient.raw?.Providers ?? []).map((p) => p.Name).join(", ");
     const address = [patient.raw?.Address1, patient.raw?.City, patient.raw?.State, patient.raw?.ZipCode]
         .filter(Boolean)
@@ -98,6 +127,10 @@ export function renderPatientSummaryPage({ patient, appointments, chartUrl }) {
     <div class="section">
       <h2>Appointments</h2>
       ${renderAppointments(appointments)}
+    </div>
+    <div class="section">
+      <h2>Previous Calls</h2>
+      ${renderPreviousCalls(previousCalls)}
     </div>
     <a class="cta" href="${escapeHtml(chartUrl)}" target="_blank" rel="noopener">Open full chart in 4D EMR</a>
   </div>

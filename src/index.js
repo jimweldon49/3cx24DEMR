@@ -5,6 +5,7 @@ import { logger } from "./logger.js";
 import { FourdEmrClient } from "./clients/fourd-emr-client.js";
 import { CallSessionStore } from "./services/call-session-store.js";
 import { EventIdStore } from "./services/event-id-store.js";
+import { LeadIdStore } from "./leadIdStore.js";
 import { createWebhookRouter } from "./routes/webhooks.js";
 import { createCrmRouter } from "./routes/crm.js";
 
@@ -23,7 +24,8 @@ app.use(express.json({
 }));
 app.use(pinoHttp({ logger }));
 
-const fourdEmrClient = new FourdEmrClient(config, logger);
+const leadIdStore = new LeadIdStore(config, logger);
+const fourdEmrClient = new FourdEmrClient(config, logger, leadIdStore);
 const callSessions = new CallSessionStore(config.callSessionTtlMs);
 const processedEvents = new EventIdStore(config.callSessionTtlMs);
 

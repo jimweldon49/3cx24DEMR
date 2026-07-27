@@ -22,8 +22,12 @@
  *              Fires when a call ends. Carries 3CX's own [Transcription]
  *              and [Summary] tokens (populated by 3CX Enterprise call
  *              transcription). Pushes the note via pushCallTranscript() --
- *              matched patient -> chart note; no match -> 4D EMR lead note
- *              (same dispatcher used by the /webhooks/3cx/call-end path).
+ *              always to a 4D EMR Lead (find-or-create by phone), named with
+ *              the real patient name when matched. Chart notes were tried
+ *              first but don't land anywhere visible in 4D EMR's UI regardless
+ *              of type id sent; 4D EMR support confirmed (2026-07-27) Leads is
+ *              the correct destination for every caller, not just unmatched
+ *              ones (same dispatcher used by the /webhooks/3cx/call-end path).
  *
  * Independent of the /webhooks/3cx/* routes used by Call Flow Designer --
  * both write into the same CallSessionStore keyed by callId, but neither
@@ -204,8 +208,18 @@ export function createCrmRouter(deps) {
             catch (error) {
                 deps.logger.warn({ err: error, patientId: pid }, "Failed to fetch appointments for patient summary");
             }
+            let previousCalls = [];
+            const phone = patient.raw?.PhonePrimary;
+            if (phone) {
+                try {
+                    previousCalls = await deps.fourdEmrClient.getPreviousCallNotes(normalizePhoneNumber(phone));
+                }
+                catch (error) {
+                    deps.logger.warn({ err: error, patientId: pid }, "Failed to fetch previous call notes for patient summary");
+                }
+            }
             const chartUrl = screenPopUrl(deps.config, patient.id) ?? `${deps.config.fourdEmrAppBaseUrl}/#`;
-            return res.status(200).type("html").send(renderPatientSummaryPage({ patient, appointments, chartUrl }));
+            return res.status(200).type("html").send(renderPatientSummaryPage({ patient, appointments, previousCalls, chartUrl }));
         }
         catch (error) {
             deps.logger.error({ err: error, patientId: pid }, "Failed to render patient summary page");
