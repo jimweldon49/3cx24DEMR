@@ -55,7 +55,23 @@ const envSchema = z.object({
         .default("new_patient"),
     REDACT_SSN_IN_TRANSCRIPTS: z.coerce.boolean().default(true),
     CALL_SESSION_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(240),
-    PATIENT_SUMMARY_LINK_TTL_MINUTES: z.coerce.number().int().min(1).max(180).default(30)
+    PATIENT_SUMMARY_LINK_TTL_MINUTES: z.coerce.number().int().min(1).max(180).default(30),
+
+    // Missed-call SMS: 3CX Call Control API (queue abandonment detection) + Voxtelesys (send)
+    MISSED_CALL_SMS_ENABLED: z.coerce.boolean().default(false),
+    THREE_CX_CC_CLIENT_ID: z.string().min(1).optional(),
+    THREE_CX_CC_CLIENT_SECRET: z.string().min(1).optional(),
+    THREE_CX_QUEUE_DN: z.string().min(1).optional(),
+    THREE_CX_QUEUE_AGENT_DNS: z.string().min(1).optional(),
+    THREE_CX_ABANDON_DECISION_DELAY_MS: z.coerce.number().int().min(200).max(10000).default(2000),
+    MISSED_CALL_SMS_COOLDOWN_MINUTES: z.coerce.number().int().min(0).max(1440).default(10),
+    VOXTELESYS_SMS_API_URL: z.string().url().default("https://smsapi.voxtelesys.net/api/v1/sms"),
+    VOXTELESYS_SMS_API_KEY: z.string().min(1).optional(),
+    VOXTELESYS_SMS_FROM_NUMBER: z.string().min(1).optional(),
+    MISSED_CALL_SMS_MESSAGE: z
+        .string()
+        .min(1)
+        .default("Sorry that we missed your call, please feel free to reply back to this SMS and chat with us.")
 });
 
 let cachedConfig = null;
@@ -95,6 +111,24 @@ export function getConfig() {
     }
 
     const publicBaseUrl = parsed.PUBLIC_BASE_URL ?? `http://localhost:${parsed.PORT}`;
+
+    if (parsed.MISSED_CALL_SMS_ENABLED) {
+        const required = {
+            THREE_CX_CC_CLIENT_ID: parsed.THREE_CX_CC_CLIENT_ID,
+            THREE_CX_CC_CLIENT_SECRET: parsed.THREE_CX_CC_CLIENT_SECRET,
+            THREE_CX_QUEUE_DN: parsed.THREE_CX_QUEUE_DN,
+            THREE_CX_QUEUE_AGENT_DNS: parsed.THREE_CX_QUEUE_AGENT_DNS,
+            THREE_CX_TENANT_URL: parsed.THREE_CX_TENANT_URL,
+            VOXTELESYS_SMS_API_KEY: parsed.VOXTELESYS_SMS_API_KEY,
+            VOXTELESYS_SMS_FROM_NUMBER: parsed.VOXTELESYS_SMS_FROM_NUMBER
+        };
+        const missing = Object.entries(required)
+            .filter(([, value]) => !value)
+            .map(([name]) => name);
+        if (missing.length > 0) {
+            throw new Error(`MISSED_CALL_SMS_ENABLED is true but missing: ${missing.join(", ")}`);
+        }
+    }
 
     cachedConfig = {
         port: parsed.PORT,
@@ -156,7 +190,23 @@ export function getConfig() {
             redactSsn: parsed.REDACT_SSN_IN_TRANSCRIPTS
         },
         callSessionTtlMs: parsed.CALL_SESSION_TTL_MINUTES * 60 * 1000,
-        patientSummaryLinkTtlMs: parsed.PATIENT_SUMMARY_LINK_TTL_MINUTES * 60 * 1000
+        patientSummaryLinkTtlMs: parsed.PATIENT_SUMMARY_LINK_TTL_MINUTES * 60 * 1000,
+        missedCallSms: {
+            enabled: parsed.MISSED_CALL_SMS_ENABLED,
+            threeCxApiBaseUrl: parsed.THREE_CX_TENANT_URL ? trimTrailingSlash(parsed.THREE_CX_TENANT_URL) : undefined,
+            ccClientId: parsed.THREE_CX_CC_CLIENT_ID,
+            ccClientSecret: parsed.THREE_CX_CC_CLIENT_SECRET,
+            queueDn: parsed.THREE_CX_QUEUE_DN,
+            queueAgentDns: parsed.THREE_CX_QUEUE_AGENT_DNS
+                ? parsed.THREE_CX_QUEUE_AGENT_DNS.split(",").map((dn) => dn.trim()).filter(Boolean)
+                : [],
+            abandonDecisionDelayMs: parsed.THREE_CX_ABANDON_DECISION_DELAY_MS,
+            cooldownMs: parsed.MISSED_CALL_SMS_COOLDOWN_MINUTES * 60 * 1000,
+            voxtelesysSmsApiUrl: parsed.VOXTELESYS_SMS_API_URL,
+            voxtelesysSmsApiKey: parsed.VOXTELESYS_SMS_API_KEY,
+            voxtelesysSmsFromNumber: parsed.VOXTELESYS_SMS_FROM_NUMBER,
+            message: parsed.MISSED_CALL_SMS_MESSAGE
+        }
     };
     return cachedConfig;
 }

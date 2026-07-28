@@ -6,6 +6,7 @@ import { FourdEmrClient } from "./clients/fourd-emr-client.js";
 import { CallSessionStore } from "./services/call-session-store.js";
 import { EventIdStore } from "./services/event-id-store.js";
 import { LeadIdStore } from "./leadIdStore.js";
+import { CallControlListener } from "./callControlListener.js";
 import { createWebhookRouter } from "./routes/webhooks.js";
 import { createCrmRouter } from "./routes/crm.js";
 
@@ -54,3 +55,5 @@ app.listen(config.port, () => {
         fourdBaseUrl: config.fourdEmrBaseUrl
     }, "3CX/4D EMR integration service started");
 });
+
+new CallControlListener(config, logger).start();

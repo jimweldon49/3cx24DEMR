@@ -1,6 +1,6 @@
 # 3CX v20 + 4D EMR Integration
 
-Connects **3CX v20** call events to **4D EMR** for screen pop and call-transcript writeback.
+Connects **3CX v20** call events to **4D EMR** for screen pop and call-transcript writeback, and separately, texts callers whose queue call goes unanswered.
 
 This repo reflects what's actually deployed to the `ca-3cx-4d-prod` Azure Container App (reconciled 2026-07-27 — earlier revisions of this repo drifted from what was live; see git history if you need the story).
 
@@ -33,6 +33,18 @@ An older, separate integration path — a 3CX Call Flow Designer script POSTs ca
 
 Optional HMAC signature validation via `THREE_CX_WEBHOOK_SECRET` (`x-3cx-signature` header).
 
+### 3. Missed-call SMS (`src/callControlListener.js`, no HTTP route — a long-lived background process)
+
+Independent feature, unrelated to 4D EMR: when a call to queue `THREE_CX_QUEUE_DN` is abandoned (rings, nobody answers, caller hangs up), automatically text the caller via Voxtelesys so they can reply and route back into the queue (reply-routing is native 3CX DID-to-queue SMS behavior, not something this service does).
+
+**Why this needs the Call Control API, not just Call Flow Designer:** native 3CX queues hand the call to a subsystem CFD can't see into — confirmed both by 3CX community consensus and empirically (a CFD flow only knows about a call while it's flowing through that script). The only way to detect an abandoned queue call is the [Call Control API](https://www.3cx.com/docs/call-control-api/) (the xAPI/WebSocket variant — needs an 8SC+ Enterprise license, and supports secure remote access, unlike the older localhost-only .NET version).
+
+**Detection rule** (derived empirically 2026-07-28 by watching real answered vs. abandoned calls side by side, not from docs — see the comment block at the top of `callControlListener.js` for the full walkthrough): a call ringing into the queue also rings every monitored agent extension (`status: "Ringing"` on each, same `callid`). If answered, exactly one extension transitions to `status: "Connected"` while every other leg — including the queue's own — gets dropped at that same moment. If abandoned, every leg drops while still `"Ringing"`; no extension ever reaches `"Connected"`. `THREE_CX_QUEUE_AGENT_DNS` **must list every extension that's a member of the queue** — an unmonitored extension answering a call would incorrectly look abandoned.
+
+**Sending the SMS** goes through Voxtelesys's Messaging API directly (`VOXTELESYS_SMS_API_URL`), not through 3CX. Important: a number that works fine for *inbound* SMS via 3CX's own SMS trunk config is **not** automatically valid as the `from` sender here — confirmed 2026-07-28 that `+19163477001` (configured/working in 3CX's SMS tab) 404s `"from" not found` against this API, while `+19166643391` (the practice's main line) works. Test any new `VOXTELESYS_SMS_FROM_NUMBER` before relying on it.
+
+Disabled by default (`MISSED_CALL_SMS_ENABLED=false`) since enabling it means real callers start receiving real texts — flip it on deliberately, not as a side effect of deploying.
+
 ---
 
 ## Quick start
@@ -64,5 +76,5 @@ Deployed as an Azure Container App (`ca-3cx-4d-prod`), built via `az acr build` 
 ## Production guidance
 
 - In-memory sessions/idempotency store (`CallSessionStore`, `EventIdStore`) are fine for a single instance. Move to Redis before scaling to multiple replicas.
-- Keep `CRM_TEMPLATE_API_KEY` and 4D EMR credentials in Container App secrets/App Settings, not committed anywhere.
+- Keep `CRM_TEMPLATE_API_KEY`, 4D EMR credentials, `THREE_CX_CC_CLIENT_SECRET`, and `VOXTELESYS_SMS_API_KEY` in Container App secrets/App Settings, not committed anywhere.
 - `/crm/patient-summary` renders real PHI — don't widen its TTL casually, and don't log full URLs (they contain a valid signed token) anywhere persistent.
