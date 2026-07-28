@@ -84,7 +84,7 @@ const envSchema = z.object({
     MISSED_CALL_SMS_MESSAGE: z
         .string()
         .min(1)
-        .default("Sorry that we missed your call, please feel free to reply back to this SMS and chat with us.")
+        .default("Hi, this is Ideal Plastic Surgery. Sorry we missed your call! Please reply to this text and we'll get back to you as soon as possible.")
 });
 
 let cachedConfig = null;
