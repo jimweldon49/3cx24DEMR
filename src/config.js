@@ -1,6 +1,19 @@
 import "dotenv/config";
 import { z } from "zod";
 
+// z.coerce.boolean() uses JS `Boolean(value)`, so the string "false" coerces
+// to `true` (any non-empty string is truthy) -- a real footgun for env vars,
+// which are always strings. This actually shipped MISSED_CALL_SMS_ENABLED=false
+// as enabled in production on 2026-07-28. Use this for every boolean env var.
+function booleanEnv(defaultValue) {
+    return z.preprocess((value) => {
+        if (typeof value === "string") {
+            return value.trim().toLowerCase() === "true";
+        }
+        return value;
+    }, z.boolean().default(defaultValue));
+}
+
 const envSchema = z.object({
     PORT: z.coerce.number().int().min(1).max(65535).default(8080),
     LOG_LEVEL: z.string().default("info"),
@@ -29,7 +42,7 @@ const envSchema = z.object({
     FOURD_EMR_PATIENT_LOOKUP_RESULT_PATH: z.string().default("Items"),
     FOURD_EMR_PATIENT_LOOKUP_PAGE_COUNT: z.coerce.number().int().positive().default(20),
     FOURD_EMR_PATIENT_LOOKUP_PAGE_SKIP: z.coerce.number().int().min(0).default(0),
-    FOURD_EMR_PATIENT_LOOKUP_NEED_TOTAL_COUNT: z.coerce.boolean().default(true),
+    FOURD_EMR_PATIENT_LOOKUP_NEED_TOTAL_COUNT: booleanEnv(true),
     FOURD_EMR_PATIENT_ID_PATH: z.string().default("PatientId"),
     FOURD_EMR_PATIENT_NAME_PATH: z.string().default(""),
     FOURD_EMR_PATIENT_FIRST_NAME_PATH: z.string().default("FirstName"),
@@ -53,12 +66,12 @@ const envSchema = z.object({
     SCREEN_POP_NO_MATCH_ACTION: z
         .enum(["new_patient", "search", "none"])
         .default("new_patient"),
-    REDACT_SSN_IN_TRANSCRIPTS: z.coerce.boolean().default(true),
+    REDACT_SSN_IN_TRANSCRIPTS: booleanEnv(true),
     CALL_SESSION_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(240),
     PATIENT_SUMMARY_LINK_TTL_MINUTES: z.coerce.number().int().min(1).max(180).default(30),
 
     // Missed-call SMS: 3CX Call Control API (queue abandonment detection) + Voxtelesys (send)
-    MISSED_CALL_SMS_ENABLED: z.coerce.boolean().default(false),
+    MISSED_CALL_SMS_ENABLED: booleanEnv(false),
     THREE_CX_CC_CLIENT_ID: z.string().min(1).optional(),
     THREE_CX_CC_CLIENT_SECRET: z.string().min(1).optional(),
     THREE_CX_QUEUE_DN: z.string().min(1).optional(),
